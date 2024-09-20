@@ -1,0 +1,37 @@
+name: dcs
+channels:
+  - defaults
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - matplotlib
+  - scipy
+  - seaborn
+  - scikit-learn
+  - jupyter
+  - pytorch=2.4
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - openmpi
+  - mpi4py
+  - opt_einsum
+  - pip
+  - pip:
+    - configmypy
+    - zarr
+    - h5py
+    - tensorly==0.8.1
+    - tensorly-torch==0.5.0
+    - torch-harmonics==0.6.1  
+    - pyg_lib
+    - torch_scatter
+    - torch_sparse
+    - torch_cluster
+    - torch_spline_conv
+    - -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+    - torch_geometric

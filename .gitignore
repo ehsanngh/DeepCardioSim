@@ -96,6 +96,7 @@ target/
 .mat
 .png
 .ply
+.vtk
 
 venv/
 
@@ -103,6 +104,8 @@ venv/
 **/tmp/
 **/results/
 **/checkpoints/
+**/data/
+**/ckpt/
 
 .DS_Store
 .AppleDouble
