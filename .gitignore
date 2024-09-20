@@ -82,21 +82,20 @@ target/
 *.ipynb-meta
 
 # Others
-.sb
-.out
-.sh
+*.sb
+*.out
+*.sh
 
-.pkl
-.pt
-.ipynb
-.tgz
-.zip
-.npy
-.npz
-.mat
-.png
-.ply
-.vtk
+*.pkl
+*.pt
+*.tgz
+*.zip
+*.npy
+*.npz
+*.mat
+*.png
+*.ply
+*.vtk
 
 venv/
 
