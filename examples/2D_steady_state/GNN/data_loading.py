@@ -22,7 +22,7 @@ def calculate_edge_ftrs(pos, edge_index):
     return torch.concat((diffs / distances, distances), axis=1)
 
 def load_dataset_graph(
-        folder_path='./myscripts/arbitrary_domain_GNO/data',
+        folder_path='./data',
         train_batch_sizes=[1], test_batch_sizes=[1], grad=False, seed=0):
 
     npy_files = glob.glob(os.path.join(folder_path, '*.npy'))

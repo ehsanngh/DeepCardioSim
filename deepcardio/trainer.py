@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Union
 import sys
 import json
-
-import deepcardio.neuralop_core.mpu.comm as comm
 from .losses import LpLoss
 from deepcardio.train_state import load_training_state, save_training_state
 
@@ -50,16 +48,23 @@ class Trainer:
         verbose : bool, default is False
         """
 
-        self.model = model
         self.epoch = 1
+        self.best_loss = torch.tensor(1E+12, dtype=torch.float)
         self.max_epochs = max_epochs + 1
         self.eval_interval = eval_interval
         self.log_output = log_output
         self.verbose = verbose
         self.use_distributed = use_distributed
-        self.device = device
         self.amp_autocast = amp_autocast
-        self.data_processor = data_processor
+
+        if self.use_distributed:
+            import os
+            self.gpu_id = int(os.environ["LOCAL_RANK"])
+        else:
+            self.gpu_id = 0
+
+        self.model = model.to(self.gpu_id)
+        self.data_processor = data_processor.to(self.gpu_id)
 
     def train(
         self,
@@ -71,6 +76,8 @@ class Trainer:
         training_loss=None,
         eval_losses=None,
         save_every: int=None,
+        save_best: bool=False,
+        best_loss_metric_key: str=None,
         save_dir: Union[str, Path]="./ckpt",
         resume_from_dir: Union[str, Path]=None,
     ):
@@ -92,13 +99,8 @@ class Trainer:
             dict of losses to use in self.eval()
         save_every: int, optional, default is None
             if provided, interval at which to save checkpoints
-        save_best: str, optional, default is None
-            if provided, key of metric f"{loader_name}_{loss_name}"
-            to monitor and save model with best eval result
-            Overrides save_every and saves on eval_interval
         save_dir: str | Path, default "./ckpt"
-            directory at which to save training states if
-            save_every and/or save_best is provided
+            directory at which to save training states
         resume_from_dir: str | Path, default None
             if provided, resumes training state (model, 
             optimizer, regularizer, scheduler) from state saved in
@@ -112,6 +114,7 @@ class Trainer:
             all test_loaders
             
         """
+        total_train_time_start = default_timer()
         self.list_epoch_metrics = []
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -130,15 +133,18 @@ class Trainer:
         self.save_every = save_every
         if resume_from_dir is not None:
             self.resume_training_from_dir(resume_from_dir)
-            print(f'Resuming the training from epoch {self.epoch} ...')
             sys.stdout.flush()
 
+        if self.use_distributed:
+            from torch.nn.parallel import DistributedDataParallel as DDP
+            self.model = DDP(self.model, device_ids=[self.gpu_id])
+
         if self.verbose:
-            print(f'Training on {len(train_loader.dataset)} samples')
-            print(f'Testing on {[len(loader.dataset) for loader in test_loaders.values()]} samples '
+            print(f'[GPU{self.gpu_id}] Training on {len(train_loader.dataset)} samples')
+            print(f'[GPU{self.gpu_id}] Testing on {[len(loader.dataset) for loader in test_loaders.values()]} samples '
                   f'on resolutions {[name for name in test_loaders]}.')
             sys.stdout.flush()
-        
+
         for epoch in range(self.epoch, self.max_epochs):
             train_err, avg_loss, avg_lasso_loss, epoch_train_time =\
                   self.train_one_epoch(epoch, train_loader, training_loss)
@@ -155,11 +161,20 @@ class Trainer:
                 eval_metrics = self.evaluate_all(epoch=epoch,
                                                  eval_losses=eval_losses,
                                                  test_loaders=test_loaders)
+                if self.gpu_id == 0:
+                    epoch_metrics.update(**eval_metrics)
+                    self.list_epoch_metrics.append(epoch_metrics)
+                    self.checkpoint(save_dir, save_best=False)
+                    if save_best and \
+                        (epoch_metrics[best_loss_metric_key] < self.best_loss):
+                        self.best_loss = epoch_metrics[best_loss_metric_key]
+                        self.checkpoint(save_dir, save_best=True)
 
-                epoch_metrics.update(**eval_metrics)
-                self.list_epoch_metrics.append(epoch_metrics)
-                self.checkpoint(save_dir)
-
+            # Maximum training time is limited to 4 hours for each job submission
+            if 14100 - (default_timer() - total_train_time_start) < 0:
+                break
+        
+        print('[GPU{self.gpu_id}] Total Training Time= ', default_timer() - total_train_time_start)
         return epoch_metrics
 
     def train_one_epoch(self, epoch, train_loader, training_loss):
@@ -191,6 +206,11 @@ class Trainer:
         
         # track number of training examples in batch
         self.n_samples = 0
+
+        b_sz = len(next(iter(train_loader)))
+        
+        if self.use_distributed:
+            train_loader.sampler.set_epoch(epoch)
 
         for idx, sample in enumerate(train_loader):
             loss = self.train_one_batch(idx, sample, training_loss)
@@ -227,7 +247,9 @@ class Trainer:
                 avg_loss=avg_loss,
                 train_err=train_err,
                 avg_lasso_loss=avg_lasso_loss,
-                lr=lr
+                lr=lr,
+                batch_size=b_sz,
+                len_trainDL=len(train_loader),
             )
 
         return train_err, avg_loss, avg_lasso_loss, epoch_train_time
@@ -275,7 +297,8 @@ class Trainer:
                 return_output = False
                 if idx == len(data_loader) - 1:
                     return_output = True
-                eval_step_losses, outs = self.eval_one_batch(sample, loss_dict, return_output=return_output)
+                eval_step_losses, outs = self.eval_one_batch(
+                    sample, loss_dict, return_output=return_output)
 
                 for loss_name, val_loss in eval_step_losses.items():
                     errors[f"{log_prefix}_{loss_name}"] += val_loss.item()
@@ -328,7 +351,7 @@ class Trainer:
         else:
             # load data to device if no preprocessor exists
             sample = {
-                k: v.to(self.device)
+                k: v.to(self.gpu_id)
                 for k, v in sample.items()
                 if torch.is_tensor(v)
             }
@@ -342,7 +365,7 @@ class Trainer:
             out = self.model(**sample)
         
         if self.epoch == 0 and idx == 0 and self.verbose:
-            print(f"Raw outputs of shape {out.shape}")
+            print(f"[GPU{self.gpu_id}] Raw outputs of shape {out.shape}")
 
         if self.data_processor is not None:
             out, sample = self.data_processor.postprocess(out, sample)
@@ -388,7 +411,7 @@ class Trainer:
         else:
             # load data to device if no preprocessor exists
             sample = {
-                k: v.to(self.device)
+                k: v.to(self.gpu_id)
                 for k, v in sample.items()
                 if torch.is_tensor(v)
             }
@@ -417,7 +440,9 @@ class Trainer:
             avg_loss: float,
             train_err: float,
             avg_lasso_loss: float=None,
-            lr: float=None
+            lr: float=None,
+            batch_size: int=None,
+            len_trainDL: int=None,
             ):
         """Basic method to log results
         from a single training epoch. 
@@ -437,13 +462,13 @@ class Trainer:
         lr: float
             learning rate at current epoch
         """
-    
 
-        msg = f"[{epoch}] time={time:.2f}, "
+        msg = f"[GPU{self.gpu_id}] Training: Epoch {epoch} time={time:.2f}, "
         msg += f"avg_loss={avg_loss:.4e}, "
         msg += f"train_err={train_err:.4e}, "
+        msg += f"Batchsizes: {batch_size} | Steps: {len_trainDL}, "
         if avg_lasso_loss is not None:
-            msg += f", avg_lasso={avg_lasso_loss:.4e}, "
+            msg += f"avg_lasso={avg_lasso_loss:.4e}, "
         msg += f"lr={lr:.4e}"
         print(msg)
         sys.stdout.flush()
@@ -464,49 +489,56 @@ class Trainer:
             keyed f"{test_loader_name}_{metric}" for each test_loader
        
         """
-        values_to_log = {}
         msg = ""
         for metric, value in eval_metrics.items():
             if isinstance(value, float) or isinstance(value, torch.Tensor):
                 msg += f"{metric}={value:.4e}, "   
         
-        msg = f"Eval: " + msg[:-2] # cut off last comma+space
+        msg = f"[GPU{self.gpu_id}] Eval: " + msg[:-2] # cut off last comma+space
         print(msg)
         sys.stdout.flush()
 
 
     def resume_training_from_dir(self, save_dir):
         """
-        Resume training from save_dir created by `neuralop.training.save_training_state`
+        Resume training from save_dir created by `deepcardio.train_state`
         
         Params
         ------
         save_dir: Union[str, Path]
             directory in which training state is saved
-            (see neuralop.training.training_state)
+            (see deepcardio.train_state)
         """
         
         if isinstance(save_dir, str):
             save_dir = Path(save_dir)
+
         if isinstance(save_dir, Path):
-            epoch, _ = load_training_state(
+            epoch, best_loss = load_training_state(
             save_dir=save_dir,
             model=self.model,
-            best_model=False,
+            load_best=False,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
             regularizer=self.regularizer,
-            map_location=self.device)
-            self.epoch = epoch
+            map_location=f"cuda:{self.gpu_id}")
 
-            with open(save_dir.joinpath('metrics_dict.json').as_posix(), 'r') as f:
-                self.list_epoch_metrics = json.load(f)
+            self.epoch = epoch
+            self.best_loss = best_loss
+            
+            try:
+                with open(save_dir.joinpath('metrics_dict.json').as_posix(), 'r') as f:
+                    self.list_epoch_metrics = json.load(f)
+                    print(f'[GPU{self.gpu_id}] Resuming the training from epoch {self.epoch} ...')
+            except FileNotFoundError:
+                print(f"[GPU{self.gpu_id}] The file {save_dir.joinpath('metrics_dict.json').as_posix()} does not exist."
+                      "The previous epochs have not been loaded")
         return None
 
-    def checkpoint(self, save_dir, best_model=False):
+    def checkpoint(self, save_dir, save_best=False):
         """checkpoint saves current training state
         to a directory for resuming later.
-        See neuralop.training.training_state
+        See deepcardio.training_state
 
         Parameters
         ----------
@@ -518,18 +550,21 @@ class Trainer:
             save_dir=save_dir, 
             epoch=self.epoch,
             model=self.model,
-            best_loss=best_model,
+            save_best=save_best,
+            best_loss=self.best_loss,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
             regularizer=self.regularizer
             )
         
-        if best_model is False:
+        if save_best is False:
             save_dir = Path(save_dir)
             with open(save_dir.joinpath('metrics_dict.json').as_posix(), 'w') as f:
                 json.dump(self.list_epoch_metrics, f, indent=4)
 
-        if self.verbose:
-            print(f"Saved training state to {save_dir}")
+            if self.verbose:
+                print(f"[GPU{self.gpu_id}] Saved training metrics to {save_dir.joinpath('metrics_dict.json').as_posix()}")
+        
+        return None
 
        

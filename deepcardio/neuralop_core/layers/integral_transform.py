@@ -111,20 +111,17 @@ class IntegralTransform(nn.Module):
         y : torch.Tensor of shape [n, d1]
             n points of dimension d1 specifying
             the space to integrate over.
-            If batched, these must remain constant
-            over the whole batch so no batch dim is needed.
+
         neighbors : dict
             The sets A(x) given in CRS format. The
             dict must contain the keys "neighbors_index"
             and "neighbors_row_splits." For descriptions
             of the two, see NeighborSearch.
-            If batch > 1, the neighbors must be constant
-            across the entire batch.
         x : torch.Tensor of shape [m, d2], default None
             m points of dimension d2 over which the
             output function is defined. If None,
             x = y.
-        f_y : torch.Tensor of shape [batch, n, d3] or [n, d3], default None
+        f_y : torch.Tensor of shape [n, d3] or [n, timepoints, d3], default None
             Function to integrate the kernel against defined
             on the points y. The kernel is assumed diagonal
             hence its output shape must be d3 for the transforms
@@ -139,7 +136,7 @@ class IntegralTransform(nn.Module):
 
         Output
         ----------
-        out_features : torch.Tensor of shape [batch, m, d4] or [m, d4]
+        out_features : torch.Tensor of shape [m, d4] or [m, timepoints, d4]
             Output function given on the points x.
             d4 is the output size of the kernel k.
         """
@@ -149,17 +146,9 @@ class IntegralTransform(nn.Module):
 
         rep_features = y[neighbors["neighbors_index"]]
 
-        # batching only matters if f_y (latent embedding) values are provided
-        batched = False
-        # f_y has a batch dim IFF batched=True
+
         if f_y is not None:
-            if f_y.ndim == 3:
-                batched = True
-                batch_size = f_y.shape[0]
-                in_features = f_y[:, neighbors["neighbors_index"], :]
-            elif f_y.ndim == 2:
-                batched = False
-                in_features = f_y[neighbors["neighbors_index"]]
+            in_features = f_y[neighbors["neighbors_index"]]
 
         num_reps = (
             neighbors["neighbors_row_splits"][1:]
@@ -173,34 +162,29 @@ class IntegralTransform(nn.Module):
             self.transform_type == "nonlinear_kernelonly"
             or self.transform_type == "nonlinear"
         ):
-            if batched:
-                # repeat agg features for every example in the batch
-                agg_features = agg_features.repeat(
-                    [batch_size] + [1] * agg_features.ndim
-                )
             agg_features = torch.cat([agg_features, in_features], dim=-1)
 
         rep_features = self.mlp(agg_features)
 
         if f_y is not None and self.transform_type != "nonlinear_kernelonly":
-            rep_features = rep_features * in_features
+            if (rep_features.dim()==2) and (in_features.dim()==2):  # Steady State
+                rep_features = rep_features * in_features
+            elif (rep_features.dim()==2) and (in_features.dim()==3):  # Time Dependent
+                rep_features = torch.einsum('ijk,ik->ijk', in_features, rep_features)
+            else:
+                raise ValueError(f"Not implemented for your data shape. "
+                         f"rep_features.shape: {rep_features.shape}, in_features.shape: {in_features.shape}. "
+                         "Please check the data shape and try again.")
 
         if weights is not None:
             assert weights.ndim == 1, "Weights must be of dimension 1 in all cases"
             nbr_weights = weights[neighbors["neighbors_index"]]
-            # repeat weights along batch dim if batched
-            if batched:
-                nbr_weights = nbr_weights.repeat(
-                    [batch_size] + [1] * nbr_weights.ndim
-                )
             rep_features = nbr_weights * rep_features
             reduction = "sum"
         else:
             reduction = "mean"
 
         splits = neighbors["neighbors_row_splits"]
-        if batched:
-            splits = splits.repeat([batch_size] + [1] * splits.ndim)
 
         out_features = segment_csr(rep_features, splits, reduce=reduction, use_scatter=self.use_torch_scatter)
 

@@ -14,7 +14,7 @@ import torch.distributed as dist
 
 def load_training_state(save_dir: Union[str, Path], 
                         model: nn.Module,
-                        best_model: bool = False,
+                        load_best: bool = False,
                         optimizer: nn.Module=None,
                         scheduler: nn.Module=None,
                         regularizer: nn.Module=None,
@@ -51,28 +51,52 @@ def load_training_state(save_dir: Union[str, Path],
     if not map_location:
         if dist.is_initialized():
             map_location = {"cuda:0" : f"cuda:{dist.get_rank}"}
-    if best_model:
-        save_name = 'best_model'
-    else:
-        save_name = 'model'
-        
-    save_path = save_dir.joinpath(f'{save_name}_snapshot_dict.pt').as_posix()
-    snapshot = torch.load(save_path, map_location=map_location)
-    epoch = snapshot["CURRENT_EPOCH"]
-    model.load_state_dict(snapshot["MODEL_STATE"])
-    if optimizer is not None:
-        optimizer.load_state_dict(snapshot["OPTIMIZER"])
-    if scheduler is not None:
-        scheduler.load_state_dict(snapshot["SCHEDULER"])
-    if regularizer is not None:
-        regularizer.load_state_dict(snapshot["REGULARIZER"])
+
+    epoch = 1
+    best_loss = torch.tensor(1E+12, dtype=torch.float)
+
+    save_name = 'model'
+    save_name_best_model = 'best_model'
     
-    if best_model:
-        best_loss = snapshot["BEST_LOSS"]
-        print(f"Best model loaded from snapshot at {save_path}")
+    if isinstance(save_dir, str):
+        save_dir = Path(save_dir)
+
+    save_path = save_dir.joinpath(f'{save_name}_snapshot_dict.pt')
+    save_best_model_path = save_dir.joinpath(
+        f'{save_name_best_model}_snapshot_dict.pt')
+
+    if save_best_model_path.exists():
+        best_snapshot = torch.load(
+            save_best_model_path.as_posix(),
+            map_location=map_location,
+            weights_only=False)
+        best_loss = best_snapshot["BEST_LOSS"]
+        
+        if load_best:
+            model.load_state_dict(best_snapshot["MODEL_STATE"])
+            print(f'[GPU{map_location[-1]}] Model loaded from snapshot at {save_best_model_path}')
+
+    if save_path.exists():
+        snapshot = torch.load(
+            save_path.as_posix(),
+            map_location=map_location,
+            weights_only=False)
+        epoch = snapshot["CURRENT_EPOCH"]
+
+        if not load_best:
+            model.load_state_dict(snapshot["MODEL_STATE"])
+            print(f"[GPU{map_location[-1]}] Model loaded from snapshot at {save_path}")
+        
+        if optimizer is not None:
+            optimizer.load_state_dict(snapshot["OPTIMIZER"])
+        if scheduler is not None:
+            scheduler.load_state_dict(snapshot["SCHEDULER"])
+        if regularizer is not None:
+            regularizer.load_state_dict(snapshot["REGULARIZER"])
+    
     else:
-        best_loss = None
-        print(f"Model loaded from snapshot at {save_path}")
+        print((f"[GPU{map_location[-1]}] The file {save_path} does not exist. Model was not loaded"))
+    
     return epoch, best_loss
     
 
@@ -80,7 +104,7 @@ def save_training_state(
         save_dir: Union[str, Path],
         epoch: int,
         model: nn.Module,
-        best_model: bool = False,
+        save_best: bool = False,
         best_loss = None,
         optimizer: nn.Module = None,
         scheduler: nn.Module = None,
@@ -98,22 +122,25 @@ def save_training_state(
             "MODEL_STATE": model.module.state_dict() \
                 if hasattr(model, 'module') else model.state_dict(),
         }
-    if optimizer is not None:
-        snapshot["OPTIMIZER"] = optimizer.state_dict()
-    if scheduler is not None:
-        snapshot["SCHEDULER"] = scheduler.state_dict()
-    if regularizer is not None:
-        snapshot["REGULARIZER"] = regularizer.state_dict()
-    if best_model:
+    
+    if save_best:
         save_name = 'best_model'
         if best_loss is None:
             raise ValueError("best_loss must be passed as input for saving best_model")
         snapshot["BEST_LOSS"] = best_loss
     else:
         save_name = 'model'
+        if optimizer is not None:
+            snapshot["OPTIMIZER"] = optimizer.state_dict()
+        if scheduler is not None:
+            snapshot["SCHEDULER"] = scheduler.state_dict()
+        if regularizer is not None:
+            snapshot["REGULARIZER"] = regularizer.state_dict()
+    
     if isinstance(save_dir, str):
         save_dir = Path(save_dir)
     
     save_path = save_dir.joinpath(f'{save_name}_snapshot_dict.pt').as_posix()
     torch.save(snapshot, save_path)
-    print(f"Successfully saved training state to {save_path}")
+    gpu_id = str(next(model.parameters()).device)[-1]
+    print(f"[GPU{gpu_id}] Successfully saved training state to {save_path}")

@@ -31,7 +31,7 @@ class BipartiteData(Data):
     
 
 def load_dataset_gino(
-        folder_path='./myscripts/arbitrary_domain_GNO/data',
+        folder_path='./data',
         train_batch_sizes=[1],
         test_batch_sizes=[1],
         query_res = [32, 32]
@@ -103,3 +103,5 @@ def load_dataset_gino(
 
     )
     return train_loaders, test_loaders, data_processor
+
+load_dataset_gino(folder_path='./examples/2D_steady_state/data')

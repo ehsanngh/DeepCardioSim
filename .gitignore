@@ -104,7 +104,8 @@ venv/
 **/results/
 **/checkpoints/
 **/data/
-**/ckpt/
+**/ckpt*/
+**/paraview/
 
 .DS_Store
 .AppleDouble

@@ -87,7 +87,6 @@ def main(case_ID):
     drchlt_bc_right = fem.dirichletbc(f_right, dofs_right_b)
 
     # %%
-    n = ufl.FacetNormal(domain)
     g_bottom = fem.Constant(domain, default_scalar_type(0))
     g_top = -fem.Constant(domain, default_scalar_type(1))
     ds = ufl.Measure("ds", domain=domain, subdomain_data=facet_tags)

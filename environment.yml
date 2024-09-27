@@ -20,8 +20,11 @@ dependencies:
   - openmpi
   - mpi4py
   - opt_einsum
+  - scikit-image
   - pip
   - pip:
+    - imageio
+    - pygifsicle
     - configmypy
     - zarr
     - h5py
