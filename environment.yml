@@ -21,6 +21,7 @@ dependencies:
   - mpi4py
   - opt_einsum
   - scikit-image
+  - meshio
   - pip
   - pip:
     - imageio

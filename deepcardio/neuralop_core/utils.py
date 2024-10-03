@@ -4,6 +4,17 @@ from math import prod
 
 Number = Union[float, int]
 
+def count_model_params(model):
+    """Returns the total number of parameters of a PyTorch model
+    
+    Notes
+    -----
+    One complex number is counted as two parameters (we count real and imaginary parts)'
+    """
+    return sum(
+        [p.numel() * 2 if p.is_complex() else p.numel() for p in model.parameters()]
+    )
+
 def count_tensor_params(tensor, dims=None):
     """Returns the number of parameters (elements) in a single tensor, optionally, along certain dimensions only
 

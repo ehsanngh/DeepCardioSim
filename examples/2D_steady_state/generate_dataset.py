@@ -118,7 +118,7 @@ def main(case_ID):
          points[:, 1].reshape((-1, 1)),
          drchlt_bool.reshape((-1, 1)),
          neumnn_bool.reshape((-1, 1)),
-         uh.vector.getArray().reshape((-1, 1))], axis=1)
+         uh.x.petsc_vec.getArray().reshape((-1, 1))], axis=1)
 
     data_folder = Path("./data")
     data_folder.mkdir(exist_ok=True, parents=True)
@@ -134,7 +134,5 @@ def main(case_ID):
     
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--case_ID', type=int, required=True)
-    args = parser.parse_args()
-    main(args.case_ID)
+    for i in range(1000):
+        main(case_ID=i)

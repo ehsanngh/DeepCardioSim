@@ -148,7 +148,7 @@ def main(case_ID, write_xdmf=False):
     uh1 = fem.Function(V1)
     uh1.interpolate(initial_condition)
     uh1s = np.zeros((points.shape[0], num_steps + 1))
-    uh1s[:, 0] = uh1.vector.getArray()
+    uh1s[:, 0] = uh1.x.petsc_vec.getArray()
 
     if write_xdmf:
         from dolfinx import io
@@ -175,7 +175,7 @@ def main(case_ID, write_xdmf=False):
         set_bc(b, [drchlt_bc_left, drchlt_bc_right])
 
         # Solve linear problem
-        solver.solve(b, uh2.vector)
+        solver.solve(b, uh2.x.petsc_vec)
         print(f"n: {n}, Final residual norm: {solver.getResidualNorm()}")
         uh2.x.scatter_forward()
 
@@ -183,7 +183,7 @@ def main(case_ID, write_xdmf=False):
         u_n.x.array[:] = uh2.x.array
 
         uh1.interpolate(uh2)
-        uh1s[:, n + 1] = uh1.vector.getArray()
+        uh1s[:, n + 1] = uh1.x.petsc_vec.getArray()
         if write_xdmf:
             xdmf.write_function(uh1, source_term.t)
     # %%
