@@ -56,12 +56,14 @@ class Trainer:
         self.verbose = verbose
         self.use_distributed = use_distributed
         self.amp_autocast = amp_autocast
-
-        if self.use_distributed:
+        
+        if device == 'cpu':
+            self.gpu_id = 'cpu'
+        elif self.use_distributed:
             import os
-            self.gpu_id = int(os.environ["LOCAL_RANK"])
+            self.gpu_id = f'cuda:{int(os.environ["LOCAL_RANK"])}'
         else:
-            self.gpu_id = 0
+            self.gpu_id = 'cuda:0'
 
         self.model = model.to(self.gpu_id)
         self.data_processor = data_processor.to(self.gpu_id)
@@ -140,8 +142,8 @@ class Trainer:
             self.model = DDP(self.model, device_ids=[self.gpu_id])
 
         if self.verbose:
-            print(f'[GPU{self.gpu_id}] Training on {len(train_loader.dataset)} samples')
-            print(f'[GPU{self.gpu_id}] Testing on {[len(loader.dataset) for loader in test_loaders.values()]} samples '
+            print(f'[{self.gpu_id}] Training on {len(train_loader.dataset)} samples')
+            print(f'[{self.gpu_id}] Testing on {[len(loader.dataset) for loader in test_loaders.values()]} samples '
                   f'on resolutions {[name for name in test_loaders]}.')
             sys.stdout.flush()
 
@@ -161,7 +163,7 @@ class Trainer:
                 eval_metrics = self.evaluate_all(epoch=epoch,
                                                  eval_losses=eval_losses,
                                                  test_loaders=test_loaders)
-                if self.gpu_id == 0:
+                if self.gpu_id in ['cuda:0', 'cpu']:
                     epoch_metrics.update(**eval_metrics)
                     self.list_epoch_metrics.append(epoch_metrics)
                     self.checkpoint(save_dir, save_best=False)
@@ -174,7 +176,7 @@ class Trainer:
             if 14100 - (default_timer() - total_train_time_start) < 0:
                 break
         
-        print('[GPU{self.gpu_id}] Total Training Time= ', default_timer() - total_train_time_start)
+        print(f'[{self.gpu_id}] Total Training Time = {default_timer() - total_train_time_start}')
         return epoch_metrics
 
     def train_one_epoch(self, epoch, train_loader, training_loss):
@@ -259,7 +261,7 @@ class Trainer:
         all_metrics = {}
         for loader_name, loader in test_loaders.items():
             loader_metrics = self.evaluate(eval_losses, loader,
-                                    log_prefix=loader_name)   
+                                    log_prefix=loader_name, epoch=epoch)   
             all_metrics.update(**loader_metrics)
         self.log_eval(epoch=epoch,
                       eval_metrics=all_metrics)
@@ -292,6 +294,9 @@ class Trainer:
         errors = {f"{log_prefix}_{loss_name}": 0 for loss_name in loss_dict.keys()}
 
         self.n_samples = 0
+        if self.use_distributed:
+            data_loader.sampler.set_epoch(epoch)
+            
         with torch.no_grad():
             for idx, sample in enumerate(data_loader):
                 return_output = False
@@ -365,7 +370,7 @@ class Trainer:
             out = self.model(**sample)
         
         if self.epoch == 0 and idx == 0 and self.verbose:
-            print(f"[GPU{self.gpu_id}] Raw outputs of shape {out.shape}")
+            print(f"[{self.gpu_id}] Raw outputs of shape {out.shape}")
 
         if self.data_processor is not None:
             out, sample = self.data_processor.postprocess(out, sample)
@@ -463,7 +468,7 @@ class Trainer:
             learning rate at current epoch
         """
 
-        msg = f"[GPU{self.gpu_id}] Training: Epoch {epoch} time={time:.2f}, "
+        msg = f"[{self.gpu_id}] Training: Epoch {epoch} time={time:.2f}, "
         msg += f"avg_loss={avg_loss:.4e}, "
         msg += f"train_err={train_err:.4e}, "
         msg += f"Batchsizes: {batch_size} | Steps: {len_trainDL}, "
@@ -494,7 +499,7 @@ class Trainer:
             if isinstance(value, float) or isinstance(value, torch.Tensor):
                 msg += f"{metric}={value:.4e}, "   
         
-        msg = f"[GPU{self.gpu_id}] Eval: " + msg[:-2] # cut off last comma+space
+        msg = f"[{self.gpu_id}] Eval: " + msg[:-2] # cut off last comma+space
         print(msg)
         sys.stdout.flush()
 
@@ -521,7 +526,7 @@ class Trainer:
             optimizer=self.optimizer,
             scheduler=self.scheduler,
             regularizer=self.regularizer,
-            map_location=f"cuda:{self.gpu_id}")
+            map_location=self.gpu_id)
 
             self.epoch = epoch
             self.best_loss = best_loss
@@ -529,9 +534,9 @@ class Trainer:
             try:
                 with open(save_dir.joinpath('metrics_dict.json').as_posix(), 'r') as f:
                     self.list_epoch_metrics = json.load(f)
-                    print(f'[GPU{self.gpu_id}] Resuming the training from epoch {self.epoch} ...')
+                    print(f'[{self.gpu_id}] Resuming the training from epoch {self.epoch} ...')
             except FileNotFoundError:
-                print(f"[GPU{self.gpu_id}] The file {save_dir.joinpath('metrics_dict.json').as_posix()} does not exist."
+                print(f"[{self.gpu_id}] The file {save_dir.joinpath('metrics_dict.json').as_posix()} does not exist."
                       "The previous epochs have not been loaded")
         return None
 
@@ -563,7 +568,7 @@ class Trainer:
                 json.dump(self.list_epoch_metrics, f, indent=4)
 
             if self.verbose:
-                print(f"[GPU{self.gpu_id}] Saved training metrics to {save_dir.joinpath('metrics_dict.json').as_posix()}")
+                print(f"[{self.gpu_id}] Saved training metrics to {save_dir.joinpath('metrics_dict.json').as_posix()}")
         
         return None
 

@@ -101,11 +101,11 @@ venv/
 
 **/logs/
 **/tmp/
-**/results/
-**/checkpoints/
-**/data/
+**/results*/
+**/checkpoints*/
+**/data*/
 **/ckpt*/
-**/paraview/
+**/paraview*/
 
 .DS_Store
 .AppleDouble

@@ -74,7 +74,7 @@ def load_training_state(save_dir: Union[str, Path],
         
         if load_best:
             model.load_state_dict(best_snapshot["MODEL_STATE"])
-            print(f'[GPU{map_location[-1]}] Model loaded from snapshot at {save_best_model_path}')
+            print(f'[{map_location}] Model loaded from snapshot at {save_best_model_path}')
 
     if save_path.exists():
         snapshot = torch.load(
@@ -85,7 +85,7 @@ def load_training_state(save_dir: Union[str, Path],
 
         if not load_best:
             model.load_state_dict(snapshot["MODEL_STATE"])
-            print(f"[GPU{map_location[-1]}] Model loaded from snapshot at {save_path}")
+            print(f"[{map_location}] Model loaded from snapshot at {save_path}")
         
         if optimizer is not None:
             optimizer.load_state_dict(snapshot["OPTIMIZER"])
@@ -95,7 +95,7 @@ def load_training_state(save_dir: Union[str, Path],
             regularizer.load_state_dict(snapshot["REGULARIZER"])
     
     else:
-        print((f"[GPU{map_location[-1]}] The file {save_path} does not exist. Model was not loaded"))
+        print((f"[{map_location}] The file {save_path} does not exist. Model was not loaded"))
     
     return epoch, best_loss
     
@@ -142,5 +142,5 @@ def save_training_state(
     
     save_path = save_dir.joinpath(f'{save_name}_snapshot_dict.pt').as_posix()
     torch.save(snapshot, save_path)
-    gpu_id = str(next(model.parameters()).device)[-1]
-    print(f"[GPU{gpu_id}] Successfully saved training state to {save_path}")
+    gpu_id = str(next(model.parameters()).device)
+    print(f"[{gpu_id}] Successfully saved training state to {save_path}")
