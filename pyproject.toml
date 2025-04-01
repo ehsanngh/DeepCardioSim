@@ -1,1 +1,89 @@
-title = "deepcardiosim"
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepcardiosim"
+version = "0.1.0"
+description = "Deep Neural Models for Cardiovascular Simulations"
+readme = "README.rst"
+requires-python = ">=3.12"
+dependencies = [
+  "torch==2.5.1",
+  "torchvision>=0.20.0",
+  "torch_geometric",
+  "pyg_lib ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
+  "torch_scatter ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
+  "torch_sparse ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'", 
+  "torch_cluster ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
+  "torch_spline_conv ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
+  "meshio",
+  "argparse",
+  "tensorly",
+  "tensorly-torch",
+  "opt-einsum",
+  "torch-harmonics",
+  "h5py",
+  "scikit-learn",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+]
+pyg_lib = [
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/pyg_lib-0.4.0%2Bpt25cpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcu124/pyg_lib-0.4.0%2Bpt25cu124-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/pyg_lib-0.4.0%2Bpt25-cp312-cp312-macosx_14_0_universal2.whl", marker = "sys_platform == 'darwin'" },
+]
+torch_scatter = [
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_scatter-2.1.2%2Bpt25cpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcu124/torch_scatter-2.1.2%2Bpt25cu124-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_scatter-2.1.2-cp312-cp312-macosx_10_13_universal2.whl", marker = "sys_platform == 'darwin'" },
+]
+torch_sparse = [
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_sparse-0.6.18%2Bpt25cpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcu124/torch_sparse-0.6.18%2Bpt25cu124-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_sparse-0.6.18-cp312-cp312-macosx_11_0_universal2.whl", marker = "sys_platform == 'darwin'" },
+]
+torch_cluster = [
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_cluster-1.6.3%2Bpt25cpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcu124/torch_cluster-1.6.3%2Bpt25cu124-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_cluster-1.6.3-cp312-cp312-macosx_10_13_universal2.whl", marker = "sys_platform == 'darwin'" },
+]
+torch_spline_conv = [
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_spline_conv-1.2.2%2Bpt25cpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcu124/torch_spline_conv-1.2.2%2Bpt25cu124-cp312-cp312-linux_x86_64.whl", marker = "sys_platform == 'linux'" },
+  { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcpu/torch_spline_conv-1.2.2-cp312-cp312-macosx_10_13_universal2.whl", marker = "sys_platform == 'darwin'" },
+]
+
+[tool.setuptools]
+packages = ["deepcardio", "cardiac_examples"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+
+[project.optional-dependencies]
+plot = [
+  "matplotlib",
+  "jupyter",
+  "seaborn",
+  "imageio",
+]
+image = [
+  "imageio",
+  "scikit-image"
+]

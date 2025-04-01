@@ -126,7 +126,7 @@ Thumbs.db
 .ci_cache/
 .ci_logs/
 
-.env
+.venv
 secrets.json
 counter.txt
 

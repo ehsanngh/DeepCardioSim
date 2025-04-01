@@ -19,6 +19,7 @@ if use_distributed:
         f"Running in distributed mode on {int(os.environ["WORLD_SIZE"])} GPU(s).")
     import torch.distributed as dist
     dist.init_process_group(backend="nccl")
+    os.environ["OMP_NUM_THREADS"] = str(2)
 
 else:
     print("Running in single GPU/CPU mode.")

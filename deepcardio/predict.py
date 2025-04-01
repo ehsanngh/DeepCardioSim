@@ -9,7 +9,7 @@ class ModelInference:
             model_checkpoint_path: str,
             dataprocessor_path: str,
             single_case_handling: callable = None,
-            device = None):
+            device=None):
         
         if device is None:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -88,7 +88,7 @@ class ModelInference:
             error = norm_diff / norm_y
             self.local_error = error
 
-        self.num_timesteps = sample['a'].shape[1]
+        self.num_timesteps = output.shape[1]
         self.case_ID = sample['label']
         self.sample = sample
         self.output = output

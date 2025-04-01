@@ -15,17 +15,10 @@ Start by cloning the repository:
    git clone git@gitlab.msu.edu:msu-computational-biomechanics-lab/DeepCardioSim.git
    cd DeepCardioSim
 
-We recommend using an Anaconda environment to develop and run this code (`see the Anaconda installation guide <https://conda.io/projects/conda/en/latest/user-guide/install/index.html>`_). Once Anaconda is installed, you can set up and activate the environment for this package, named ``dcs``, by running the following commands:
-
-.. code-block:: bash
-   
-   conda env create -f environment.yml
-   conda activate dcs
-
-Once the environment is set up, you can install this package in editable mode:
+We recommend using uv to develop and run this code (`see the uv doc <https://docs.astral.sh/uv/>`_). The .venv can be initiated by
 
 .. code-block:: bash
 
-   pip install -e .
+   uv sync --extra-all
 
 

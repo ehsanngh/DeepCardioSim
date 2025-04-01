@@ -1,11 +1,6 @@
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.tri import Triangulation
 from typing import Union
-import imageio.v3 as iio
-import skimage as ski
-import os
 
 def determine_batch_size(device, batch_size_base):
     props = torch.cuda.get_device_properties(device)
@@ -23,6 +18,10 @@ def determine_batch_size(device, batch_size_base):
     else:
         batch_size = int(140 / 33 * batch_size_base)
     return batch_size
+
+
+import matplotlib.pyplot as plt
+from matplotlib.tri import Triangulation
 
 def plot_2D(x, y, title=None):
     fig, ax = plt.subplots(figsize=(5, 5))
@@ -75,12 +74,13 @@ def plot_tri(
 
     return None
 
-
 def create_gif_tri(
         triang: Triangulation,
         y: Union[torch.tensor, np.array],
         save_dir: str, title=None, dpi=150):
-    
+    import imageio.v3 as iio
+    import skimage as ski
+    import os
     frames = []
     vmin=y.min()
     vmax=y.max()
