@@ -173,7 +173,7 @@ class Trainer:
                         self.checkpoint(save_dir, save_best=True)
 
             # Maximum training time is limited to 4 hours for each job submission
-            if 14100 - (default_timer() - total_train_time_start) < 0:
+            if 13600 - (default_timer() - total_train_time_start) < 0:
                 break
         
         print(f'[{self.gpu_id}] Total Training Time = {default_timer() - total_train_time_start}')
@@ -219,11 +219,11 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
 
-            train_err += loss.item()
+            train_err += loss.item() * len(sample)
             with torch.no_grad():
-                avg_loss += loss.item()
+                avg_loss += loss.item() * len(sample)
                 if self.regularizer:
-                    avg_lasso_loss += self.regularizer.loss.item()
+                    avg_lasso_loss += self.regularizer.loss.item() * len(sample)
 
         if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             self.scheduler.step(train_err)
@@ -232,7 +232,7 @@ class Trainer:
 
         epoch_train_time = default_timer() - t1
 
-        train_err /= len(train_loader.dataset)
+        train_err /= len(train_loader.sampler)
         avg_loss /= self.n_samples
         if self.regularizer:
             avg_lasso_loss /= self.n_samples
@@ -306,10 +306,10 @@ class Trainer:
                     sample, loss_dict, return_output=return_output)
 
                 for loss_name, val_loss in eval_step_losses.items():
-                    errors[f"{log_prefix}_{loss_name}"] += val_loss.item()
-            
+                    errors[f"{log_prefix}_{loss_name}"] += val_loss.item() * len(sample)
+
         for key in errors.keys():
-            errors[key] /= self.n_samples
+            errors[key] /= len(data_loader.sampler)  # self.n_samples
         
         return errors
     
@@ -528,7 +528,7 @@ class Trainer:
             regularizer=self.regularizer,
             map_location=self.gpu_id)
 
-            self.epoch = epoch
+            self.epoch = epoch + 1
             self.best_loss = best_loss
             
             try:

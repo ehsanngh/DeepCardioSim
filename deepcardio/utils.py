@@ -7,6 +7,22 @@ import imageio.v3 as iio
 import skimage as ski
 import os
 
+def determine_batch_size(device, batch_size_base):
+    props = torch.cuda.get_device_properties(device)
+    total_memory_gb = props.total_memory / (1024**3)  # convert bytes to GB
+
+    # Adjust the batch size based on GPU memory.
+    if total_memory_gb < 33:
+        batch_size = batch_size_base
+    elif total_memory_gb < 42:
+        batch_size = int(42 / 33 * batch_size_base)
+    elif total_memory_gb < 50:
+        batch_size = int(50 / 33 * batch_size_base)
+    elif total_memory_gb < 82:
+        batch_size = int(82 / 33 * batch_size_base)
+    else:
+        batch_size = int(140 / 33 * batch_size_base)
+    return batch_size
 
 def plot_2D(x, y, title=None):
     fig, ax = plt.subplots(figsize=(5, 5))

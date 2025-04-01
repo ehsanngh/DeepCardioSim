@@ -3,7 +3,7 @@
 import torch
 import math
 from deepcardio.losses.finite_diff import central_diff_1d, central_diff_2d, central_diff_3d
-
+from torch_scatter import scatter_mean
 
 class LpLoss(object):
     """
@@ -11,7 +11,7 @@ class LpLoss(object):
     discretized d-dimensional functions
     """
     def __init__(self, d=1, p=2, L=2*math.pi, reduce_dims=0, reductions='sum'):
-        """
+        r"""
         Parameters
         ----------
         d : int, optional
@@ -123,7 +123,7 @@ class LpLoss(object):
             
         return diff
 
-    def rel(self, x, y):
+    def rel(self, x, y, batch=None, ptr=None):
         """
         rel: relative LpLoss
         computes ||x-y||/||y||
@@ -135,10 +135,20 @@ class LpLoss(object):
         y : torch.Tensor
             targets
         """
+        x_flat = torch.flatten(x, start_dim=-self.d)
+        y_flat = torch.flatten(y, start_dim=-self.d)
 
-        diff = torch.linalg.vector_norm(torch.flatten(x, start_dim=-self.d) - torch.flatten(y, start_dim=-self.d), \
-                          ord=self.p, dim=-1, keepdim=False)
-        ynorm = torch.linalg.vector_norm(torch.flatten(y, start_dim=-self.d), ord=self.p, dim=-1, keepdim=False)
+        diff = torch.linalg.vector_norm(
+            x_flat - y_flat, ord=self.p, dim=-1, keepdim=False)
+        ynorm = torch.linalg.vector_norm(
+            y_flat, ord=self.p, dim=-1, keepdim=False)
+        
+        if batch is not None and diff.dim() != 0:
+            diff = scatter_mean(diff, batch)
+            ynorm = scatter_mean(ynorm, batch)
+        else:
+            diff = diff.mean()
+            ynorm = ynorm.mean()
 
         diff = diff/ynorm
 
@@ -148,7 +158,9 @@ class LpLoss(object):
         return diff
 
     def __call__(self, y_pred, y, **kwargs):
-        return self.rel(y_pred, y)
+        batch = kwargs.get('batch', None)
+        ptr = kwargs.get('ptr', None)
+        return self.rel(y_pred, y, batch=batch, ptr=ptr)
 
 class H1Loss(object):
     """

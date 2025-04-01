@@ -1,7 +1,8 @@
 from deepcardio.neuralop_core.transforms import DataProcessor
 from torch_geometric.data import Data
+import torch
 
-class CustomDataProcessorGINO(DataProcessor):
+class EPDataProcessor(DataProcessor):
     def __init__(
         self,
         a_normalizer=None,
@@ -31,20 +32,30 @@ class CustomDataProcessorGINO(DataProcessor):
 
     def preprocess(self, data_dict_batch):
         data_dict_batch = data_dict_batch.to(self.device)
+        
         a = data_dict_batch['a']
         input_geom = data_dict_batch['input_geom']
-        latent_queries = data_dict_batch['latent_queries']
-        y = data_dict_batch['y']
+    
+        if self.input_geom_normalizer is not None:
+            input_geom = self.input_geom_normalizer.transform(input_geom)
+        
+        if 'latent_queries' in data_dict_batch:
+            latent_queries = data_dict_batch['latent_queries']
+            if self.query_normalizer is not None:
+                latent_queries = self.query_normalizer.transform(latent_queries)
+        else:
+            latent_queries = None
+            a = torch.concat((a, input_geom), axis=1)
 
         if self.a_normalizer is not None:
             a = self.a_normalizer.transform(a)
-        if self.input_geom_normalizer is not None:
-            input_geom = self.input_geom_normalizer.transform(input_geom)
-        if self.query_normalizer is not None:
-            latent_queries = self.query_normalizer.transform(latent_queries)
-        if self.out_normalizer is not None:
-            y = self.out_normalizer.transform(y)
-        
+
+        if 'y' in data_dict_batch:
+            y = data_dict_batch['y']
+            if self.out_normalizer is not None:
+                y = self.out_normalizer.transform(y)
+        else:
+            y = None
         
         data_dict_batch_updated = Data(
             a=a, input_geom=input_geom,
@@ -56,22 +67,30 @@ class CustomDataProcessorGINO(DataProcessor):
         data_dict_batch = data_dict_batch.to(self.device)
         a = data_dict_batch['a']
         input_geom = data_dict_batch['input_geom']
-        latent_queries = data_dict_batch['latent_queries']
-        y = data_dict_batch['y']
-
-        if self.out_normalizer is not None and not self.training:
-            output = self.out_normalizer.inverse_transform(output)
-            y = self.out_normalizer.inverse_transform(y)
 
         if self.a_normalizer is not None:
             a = self.a_normalizer.inverse_transform(a)
         if self.input_geom_normalizer is not None:
             input_geom = self.input_geom_normalizer.inverse_transform(input_geom)
-        if self.query_normalizer is not None:
-            latent_queries = self.query_normalizer.inverse_transform(latent_queries)
-        
-        output = output * (1 - a[:, :, 0:1]) + y * a[:, :, 0:1]
-        
+
+        if 'latent_queries' in data_dict_batch:
+            latent_queries = data_dict_batch['latent_queries']
+            if self.query_normalizer is not None:
+                latent_queries = self.query_normalizer.inverse_transform(latent_queries)
+        else:
+            latent_queries = None
+            a = a[..., :-3]
+
+        if 'y' in data_dict_batch:
+            y = data_dict_batch['y']
+        else:
+            y = None
+            
+        if self.out_normalizer is not None and not self.training:
+            output = self.out_normalizer.inverse_transform(output)
+            if y is not None:
+                y = self.out_normalizer.inverse_transform(y)
+                
         data_dict_batch_updated = Data(
             a=a, input_geom=input_geom,
             latent_queries=latent_queries, y=y)

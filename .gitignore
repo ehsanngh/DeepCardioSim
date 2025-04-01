@@ -35,6 +35,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+miscellaneous/
 parts/
 sdist/
 var/
@@ -94,6 +95,7 @@ target/
 *.npz
 *.mat
 *.png
+*.pdf
 *.ply
 *.vtk
 
@@ -127,3 +129,5 @@ Thumbs.db
 .env
 secrets.json
 counter.txt
+
+pino_test.ipynb
