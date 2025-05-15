@@ -80,7 +80,6 @@ plot = [
   "matplotlib",
   "jupyter",
   "seaborn",
-  "imageio",
 ]
 image = [
   "imageio",
@@ -88,4 +87,5 @@ image = [
 ]
 backend = [
   "fastapi[standard]",
+  "vtk",
 ]

@@ -32,6 +32,7 @@ class ModelInference:
         self.output = None
         self.local_error = None
         self.case_ID = None
+        self.xdmf_file = None
 
     def file_to_inp_data(self, file):
         if self.single_case_handling is None:
@@ -42,7 +43,7 @@ class ModelInference:
 
     def set_Diso(self, sample, Diso):
         sample = sample.clone()
-        sample['a'][..., -4] = Diso * torch.ones_like(sample['a'][..., -4])
+        sample['a'][..., 1] = Diso * torch.ones_like(sample['a'][..., 1])
         return sample
     
     def set_pacingsite(self, sample, plocs, r):
@@ -62,14 +63,23 @@ class ModelInference:
             
         if sample['a'].ndim == 3:
             cond = cond.unsqueeze(-1)
-        sample['a'][..., -5] = torch.where(cond, 1., 0.)
+        sample['a'][..., 0] = torch.where(cond, 1., 0.)
         return sample
         
-    def predict(self, inp):
+    def predict(self, inp, Diso=None, plocs=None, r=0.5):
         if isinstance(inp, str) and self.single_case_handling is not None:
             sample = self.file_to_inp_data(file=inp)
         else:
             sample = inp
+        
+        if Diso is not None:
+            sample = self.set_Diso(sample, Diso)
+            if 'y' in sample:
+                del sample['y']
+        if plocs is not None:
+            sample = self.set_pacingsite(sample, plocs, r)
+            if 'y' in sample:
+                del sample['y']
 
         sample = self.data_processor.preprocess(sample)
         output = self.model(**sample)
@@ -82,15 +92,11 @@ class ModelInference:
                 flattened_output - flattened_y,
                 ord=2, dim=-1, keepdim=True
             )
-            norm_y = torch.linalg.vector_norm(
-                flattened_y, ord=2, dim=-1, keepdim=True
-            )
-            error = norm_diff / norm_y
-            self.local_error = error
+            self.local_error = norm_diff
 
-        self.num_timesteps = output.shape[1]
-        self.case_ID = sample['label']
         self.sample = sample
+        self.num_timesteps = output.shape[1]
+        self.case_ID = sample.get('label', None)
         self.output = output
         return output
 
@@ -102,7 +108,7 @@ class ModelInference:
         if self.output is None:
             self.predict(inp)
         meshfile = mesh_directory + self.case_ID + '.vtk'
-        xdmffile = xdmf_directory + self.case_ID + '.xdmf'
+        self.xdmf_file = xdmf_directory + self.case_ID + '.xdmf'
         mesh = meshio.read(meshfile)
         meshio_points = mesh.points
 
@@ -125,18 +131,19 @@ class ModelInference:
             reordered_y = None
             reordered_error = None
         
-        if self.sample['a'].ndim == 2:
-            self.sample['a'] = self.sample['a'].unsqueeze(1)
+        a = self.sample['a'].clone()
+        if a.ndim == 2:
+            a = a.unsqueeze(1)
         
-        with meshio.xdmf.TimeSeriesWriter(xdmffile) as writer:
+        with meshio.xdmf.TimeSeriesWriter(self.xdmf_file) as writer:
             writer.write_points_cells(mesh.points, mesh.cells)
             for i in range(self.num_timesteps):
                 data1 = reordered_y[:, i, 0].numpy() if reordered_y is not None else None
                 data2 = output[indices][:, i, 0].numpy()
                 data3 = reordered_error[:, i, 0].numpy() if reordered_error is not None else None
-                data4 = self.sample['a'][indices, i, -5].cpu().numpy()
-                data5 = self.sample['a'][indices, i, -4].cpu().numpy()
-                data6 = self.sample['a'][indices, i, -3:].cpu().numpy()
+                data4 = a[indices, i, -5].cpu().numpy()
+                data5 = a[indices, i, -4].cpu().numpy()
+                data6 = a[indices, i, -3:].cpu().numpy()
                 point_data = {
                     "y_est": data2,
                     "ploc_bool": data4,

@@ -131,3 +131,5 @@ secrets.json
 counter.txt
 
 pino_test.ipynb
+
+backend/

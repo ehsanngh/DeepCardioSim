@@ -19,6 +19,6 @@ We recommend using uv to develop and run this code (`see the uv doc <https://doc
 
 .. code-block:: bash
 
-   uv sync --extra-all
+   uv sync --all-extras
 
 
