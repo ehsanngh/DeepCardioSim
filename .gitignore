@@ -98,6 +98,9 @@ target/
 *.pdf
 *.ply
 *.vtk
+*.vtp
+*.h5
+*.xdmf
 
 venv/
 
@@ -132,4 +135,3 @@ counter.txt
 
 pino_test.ipynb
 
-backend/

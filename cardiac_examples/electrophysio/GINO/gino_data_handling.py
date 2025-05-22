@@ -25,12 +25,43 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
         case = np.load(file, allow_pickle=True)
     elif file.endswith('.vtk'):
         mesh = meshio.read(file)
-        case = np.concatenate(
-            (mesh.points,
-             np.array(mesh.point_data['ploc_bool'], dtype=np.float32).reshape((-1, 1)),
-             np.array(mesh.point_data['D_iso'], dtype=np.float32).reshape((-1, 1)),
-             np.array(mesh.point_data['ef'], dtype=np.float32),
-             np.array(mesh.point_data['activation_time'], dtype=np.float32).reshape((-1, 1))), axis = 1)
+        arrays_to_concat = [mesh.points]
+        
+        if 'ploc_bool' in mesh.point_data:
+            arrays_to_concat.append(
+                np.array(
+                    mesh.point_data['ploc_bool'],
+                    dtype=np.float32).reshape((-1, 1)))
+        else:
+            arrays_to_concat.append(
+                np.zeros((mesh.points.shape[0], 1), dtype=np.float32))
+            
+        if 'D_iso' in mesh.point_data:
+            arrays_to_concat.append(
+                np.array(
+                    mesh.point_data['D_iso'],
+                    dtype=np.float32).reshape((-1, 1)))
+        else:
+            arrays_to_concat.append(
+                np.zeros((mesh.points.shape[0], 1), dtype=np.float32))
+            
+        if 'ef' in mesh.point_data:
+            arrays_to_concat.append(
+                np.array(mesh.point_data['ef'], dtype=np.float32))
+        else:
+            arrays_to_concat.append(
+                np.zeros((mesh.points.shape[0], 3), dtype=np.float32))
+            
+        if 'activation_time' in mesh.point_data:
+            arrays_to_concat.append(
+                np.array(
+                    mesh.point_data['activation_time'],
+                    dtype=np.float32).reshape((-1, 1)))
+        else:
+            arrays_to_concat.append(
+                np.zeros((mesh.points.shape[0], 1), dtype=np.float32))
+            
+        case = np.concatenate(arrays_to_concat, axis=1)
     else:
         print(f"Unsupported file format: {file}")
         return None
