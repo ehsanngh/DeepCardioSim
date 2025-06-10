@@ -32,14 +32,16 @@ Publishing to GitHub (excluding backend)
 ----------------------------------------
 
 To publish this repository to GitHub while excluding the backend code, 
-remove the backend directory, remove this section of the README, and follow these steps:
+remove this section of the README and follow these steps:
 
 .. code-block:: bash
 
    git checkout -b public
    git rm -r --cached backend
+   rm -rf backend
+   git add REAME.rst
    git commit -m "commit message"
-   git push github public:main
+   git push github public:main --force-with-lease
 
 You can then switch back to the main branch and remove the temporary branch:
 
