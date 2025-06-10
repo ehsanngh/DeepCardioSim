@@ -38,6 +38,7 @@ remove this section of the README and follow these steps:
 
    git checkout -b public
    git rm -r --cached backend
+   git rm -r --cached README.rst
    rm -rf backend
    git add REAME.rst
    git commit -m "commit message"
