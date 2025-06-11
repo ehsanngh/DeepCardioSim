@@ -4,6 +4,8 @@ DeepCardioSim: Advanced Deep Learning for Cardiovascular Simulations
 
 This repository contains code for deep neural networks and operator models designed for rapid cardiovascular simulations and efficient inverse modeling. The GUI for using the models is available at `DeepCardioSim-GUI <https://dcsim.egr.msu.edu/>`_.
 
+The preprint of our research work on predicting cardiac electrophysiology is available at `arXiv:2506.04914 <https://arxiv.org/abs/2506.04914>`_.
+
 -------------
 Installation
 -------------
@@ -26,7 +28,6 @@ Or for a full installation, run:
 .. code-block:: bash
 
    uv sync --all-extras
-
 
 There is an issue with meshio that, based on `this pull request <https://github.com/nschloe/meshio/pull/1461/commits/3f1161bf786691206e72706404853aa5d8a2cf13>`_, can be manually fixed by running:
 
