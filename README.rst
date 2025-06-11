@@ -4,7 +4,7 @@ DeepCardioSim: Advanced Deep Learning for Cardiovascular Simulations
 
 This repository contains code for deep neural networks and operator models designed for rapid cardiovascular simulations and efficient inverse modeling. The GUI for using the models is available at `DeepCardioSim-GUI <https://dcsim.egr.msu.edu/>`_.
 
-The preprint of our research work on predicting cardiac electrophysiology is available at `arXiv:2506.04914 <https://arxiv.org/abs/2506.04914>`_.
+The preprint of our research work on predicting cardiac electrophysiology is available at `arXiv:2506.08987 <https://arxiv.org/abs/2506.08987>`_.
 
 -------------
 Installation
