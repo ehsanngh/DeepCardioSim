@@ -1,6 +1,6 @@
 # aliases
-from cardiac_examples.electrophysio.data_processing import EPDataProcessor  
-from cardiac_examples.electrophysio.GINO.model import model
-from cardiac_examples.electrophysio.GINO.gino_data_handling import single_case_handling
-from cardiac_examples.electrophysio import data_processing
-from cardiac_examples.electrophysio.predict import ModelInference
+from cardiac_models.electrophysio.data_processing import EPDataProcessor  
+from cardiac_models.electrophysio.GINO.model import model
+from cardiac_models.electrophysio.GINO.gino_data_handling import single_case_handling
+from cardiac_models.electrophysio import data_processing
+from cardiac_models.electrophysio.predict import ModelInference

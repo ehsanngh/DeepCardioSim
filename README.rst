@@ -27,6 +27,13 @@ Or for a full installation, run:
 
    uv sync --all-extras
 
+
+There is an issue with meshio that, based on `this pull request <https://github.com/nschloe/meshio/pull/1461/commits/3f1161bf786691206e72706404853aa5d8a2cf13>`_, can be manually fixed by running:
+
+.. code-block:: bash
+
+   sed -i '265s|=.*|= self.filename.with_suffix(".h5")|' ./.venv/lib/python3.12/site-packages/meshio/xdmf/time_series.py
+
 ----------------------------------------
 Publishing to GitHub (excluding backend)
 ----------------------------------------
@@ -40,7 +47,7 @@ remove this section of the README and follow these steps:
    git rm -r --cached backend
    git rm -r --cached README.rst
    rm -rf backend
-   git add REAME.rst
+   git add README.rst
    git commit -m "commit message"
    git push github public:main --force-with-lease
 
