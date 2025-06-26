@@ -88,4 +88,5 @@ image = [
 backend = [
   "fastapi[standard]",
   "vtk",
+  "open3d"
 ]

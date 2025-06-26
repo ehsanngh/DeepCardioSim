@@ -71,7 +71,8 @@ def main(token, tol=0.5):
     else:
         print("Warning: Large discrepancies found in point matching.")
     
-    mesh_meshio.point_data = {}
+    if mesh_meshio.point_data is None:
+        mesh_meshio.point_data = {}
     mesh_meshio.point_data['ef'] = values_array[indices]
     meshio.write(str(output_vtk), mesh_meshio)
     return None

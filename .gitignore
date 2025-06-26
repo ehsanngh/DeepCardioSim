@@ -103,6 +103,7 @@ target/
 *.xdmf
 
 venv/
+.env
 
 **/logs/
 **/tmp/
@@ -131,7 +132,7 @@ Thumbs.db
 
 .venv
 secrets.json
-counter.txt
+*.txt
 
 pino_test.ipynb
 

@@ -52,14 +52,26 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
             arrays_to_concat.append(
                 np.zeros((mesh.points.shape[0], 3), dtype=np.float32))
             
-        if 'activation_time' in mesh.point_data:
+        if "activation_time" in mesh.point_data:
             arrays_to_concat.append(
                 np.array(
-                    mesh.point_data['activation_time'],
+                    mesh.point_data["activation_time"],
+                    dtype=np.float32).reshape((-1, 1)))
+        elif "t_act" in mesh.point_data:
+            arrays_to_concat.append(
+                np.array(
+                    mesh.point_data["t_act"],
                     dtype=np.float32).reshape((-1, 1)))
         else:
             arrays_to_concat.append(
                 np.zeros((mesh.points.shape[0], 1), dtype=np.float32))
+            
+        if "computed_labels" in mesh.point_data:
+            computed_labels = np.array(
+                    mesh.point_data["computed_labels"],
+                    dtype=np.float32).reshape((-1, 1))
+        else:
+            computed_labels = None
             
         case = np.concatenate(arrays_to_concat, axis=1)
     else:
@@ -67,7 +79,11 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
         return None
     
     rng = np.random.default_rng()
-    rng.shuffle(case, axis=0)
+    # Create permutation index for consistent shuffling
+    perm_idx = rng.permutation(case.shape[0])
+    case = case[perm_idx]
+    if computed_labels is not None:
+        computed_labels = computed_labels[perm_idx]
     input_geom = torch.tensor(case[:, :3], dtype=torch.float)
 
     num_nodes = input_geom.shape[0]
@@ -117,6 +133,8 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
         label=label,
         n_pacings=n_pacings
         )
+    if computed_labels is not None:
+        data["computed_labels"] = torch.tensor(computed_labels, dtype=torch.float)
     return data
 
 def load_dataprocessor(meshes, use_distributed, dataprocessor_savepath):

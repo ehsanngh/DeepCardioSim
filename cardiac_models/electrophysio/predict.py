@@ -66,7 +66,7 @@ class ModelInference:
         sample['a'][..., 0] = torch.where(cond, 1., 0.)
         return sample
         
-    def predict(self, inp, Diso=None, plocs=None, r=0.5):
+    def predict(self, inp, Diso=None, plocs=None, r=0.5, crt_invproblem=False):
         if isinstance(inp, str) and self.single_case_handling is not None:
             sample = self.file_to_inp_data(file=inp)
         else:
@@ -74,11 +74,11 @@ class ModelInference:
         
         if Diso is not None:
             sample = self.set_Diso(sample, Diso)
-            if 'y' in sample:
+            if 'y' in sample and not crt_invproblem:
                 del sample['y']
         if plocs is not None:
             sample = self.set_pacingsite(sample, plocs, r)
-            if 'y' in sample:
+            if 'y' in sample and not crt_invproblem:
                 del sample['y']
 
         sample = self.data_processor.preprocess(sample)
@@ -155,6 +155,8 @@ class ModelInference:
                 if data3 is not None:
                     point_data["error"] = data3
 
+                if "computed_labels" in self.sample.keys():
+                    point_data["computed_labels"] = self.sample["computed_labels"][indices].cpu().numpy()
                 writer.write_data(i, point_data=point_data)
 
 
