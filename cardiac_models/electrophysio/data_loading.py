@@ -4,7 +4,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.data import Dataset
 from deepcardio.meshdata import MeshDataset
 
-DATAPROCESSOR_SAVEDIR = "./cardiac_examples/electrophysio/"
+DATAPROCESSOR_SAVEDIR = "./cardiac_models/electrophysio/"
 
 def load_dataset(
         model="GINO",

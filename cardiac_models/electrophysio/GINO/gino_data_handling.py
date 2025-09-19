@@ -21,6 +21,7 @@ def create_grid(min_b, max_b, query_res):
 
 
 def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
+    computed_labels = None
     if file.endswith('.npy'):
         case = np.load(file, allow_pickle=True)
     elif file.endswith('.vtk'):
@@ -70,8 +71,6 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
             computed_labels = np.array(
                     mesh.point_data["computed_labels"],
                     dtype=np.float32).reshape((-1, 1))
-        else:
-            computed_labels = None
             
         case = np.concatenate(arrays_to_concat, axis=1)
     else:
@@ -108,7 +107,6 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
         input_geom.max(axis=0)[0],
         query_res).unsqueeze(0)
     
-
     dists_1 = torch.cdist(
         latent_queries.reshape(-1, latent_queries.size(-1)),
         input_geom)

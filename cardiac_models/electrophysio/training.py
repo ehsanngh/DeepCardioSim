@@ -33,18 +33,20 @@ def main(model_str, batch_size):
         if device == 'cpu' else determine_batch_size(device, batch_size)
     
     if model_str == "GINO":
-        from GINO.model import model
-        folder_path='./cardiac_examples/electrophysio/data_processed/data.pt'
+        from GINO.model import initialize_GINO_model
+        model = initialize_GINO_model(n_fno_modes=16)
+        folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed/data_GINO.pt'
         from deepcardio.meshdata import BipartiteData
         dataset_format=BipartiteData
-        save_dir = "./cardiac_examples/electrophysio/GINO/ckpt/"
+        save_dir = "/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/GINO/ckpt"
         
     elif model_str == "GNN":
-        from GNN.model import model
-        folder_path='./cardiac_examples/electrophysio/data_processed/data_GNN.pt'
+        from GNN.model import initialize_GNN_model
+        model = initialize_GNN_model(size_hidden_layers=16)
+        folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed/data_GNN.pt'
         from torch_geometric.data import Data
         dataset_format=Data
-        save_dir = "./cardiac_examples/electrophysio/GNN/ckpt/"
+        save_dir = "/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/GNN/ckpt"
 
     dltrain, dltest, data_processor = load_dataset(
         model=model_str,
@@ -89,18 +91,19 @@ def main(model_str, batch_size):
         verbose=True,
         )
 
-    trainer.train(train_loader=dltrain[0],
-                test_loaders=dltest,
-                optimizer=optimizer,
-                scheduler=scheduler, 
-                regularizer=False, 
-                training_loss=train_loss,
-                eval_losses=eval_losses,
-                save_every=2,
-                save_best=True,
-                best_loss_metric_key='0_l2',
-                save_dir=save_dir,
-                resume_from_dir=save_dir)
+    trainer.train(
+        train_loader=dltrain[0],
+        test_loaders=dltest,
+        optimizer=optimizer,
+        scheduler=scheduler, 
+        regularizer=False, 
+        training_loss=train_loss,
+        eval_losses=eval_losses,
+        save_every=2,
+        save_best=True,
+        best_loss_metric_key='0_l2',
+        save_dir=save_dir,
+        resume_from_dir=save_dir)
 
     if use_distributed:
         dist.destroy_process_group()

@@ -10,7 +10,7 @@ dependencies = [
   "torch_geometric",
   "pyg_lib ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
   "torch_scatter ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
-  "torch_sparse ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'", 
+  "torch_sparse ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
   "torch_cluster ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
   "torch_spline_conv ; sys_platform == 'win32' or sys_platform == 'linux' or sys_platform == 'darwin'",
   "meshio",
@@ -21,6 +21,7 @@ dependencies = [
   "torch-harmonics",
   "h5py",
   "scikit-learn",
+  "pyvista>=0.46.3",
 ]
 
 [tool.uv.sources]
