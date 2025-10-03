@@ -41,10 +41,12 @@ done
 
 echo "[uvicorn] starting api with ${NUM_WORKERS} workers"
 
-nohup uvicorn main:app --host 127.0.0.1 --port 8000 --workers "${NUM_WORKERS}" \
+nohup uv run uvicorn main:app --host "${UVICORN_HOST:="127.0.0.1"}" --port "${UVICORN_PORT:="8000"}" --workers "${NUM_WORKERS}" \
   --no-access-log --log-level warning \
   >>"$LOG_DIR/uvicorn.log" 2>&1 &
 echo $! >"$LOG_DIR/uvicorn.pid"
 
 find "$LOG_DIR" -type f -name '*.log*' -mtime +10 -delete || true
 echo "All services launched. Logs in $LOG_DIR"
+
+exit 0
