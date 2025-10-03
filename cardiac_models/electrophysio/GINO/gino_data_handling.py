@@ -5,7 +5,7 @@ import os
 
 from deepcardio.neuralop_core.transforms import UnitGaussianNormalizer
 from deepcardio.electrophysio import EPDataProcessor
-
+from torch_cluster import radius
 from deepcardio.meshdata import BipartiteData
 
 DataScaler = UnitGaussianNormalizer
@@ -107,10 +107,15 @@ def single_case_handling(file, query_res=[32, 32, 32], nbr_radius=0.25):
         input_geom.max(axis=0)[0],
         query_res).unsqueeze(0)
     
-    dists_1 = torch.cdist(
-        latent_queries.reshape(-1, latent_queries.size(-1)),
-        input_geom)
-    in_nbr = torch.where(dists_1 <= nbr_radius, 1., 0.).nonzero().T
+    # dists_1 = torch.cdist(
+    #     latent_queries.reshape(-1, latent_queries.size(-1)).contiguous(),
+    #     input_geom.contiguous(), p=2, compute_mode='use_mm_for_euclid_dist')
+    # in_nbr = torch.where(dists_1 <= nbr_radius, 1., 0.).nonzero().T
+    
+    row, col = radius(
+        latent_queries.reshape(-1, latent_queries.size(-1)).contiguous(),
+        input_geom.contiguous(), r=nbr_radius, max_num_neighbors=512)
+    in_nbr = torch.stack([col, row], dim=0)
     
     try:
         label = file.split('case')[1].split('_nplocs')[0]

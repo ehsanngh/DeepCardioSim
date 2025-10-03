@@ -34,7 +34,7 @@ def main(model_str, batch_size):
     
     if model_str == "GINO":
         from GINO.model import initialize_GINO_model
-        model = initialize_GINO_model(n_fno_modes=32)
+        model = initialize_GINO_model(n_fno_modes=16)
         folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed/data_GINO.pt'
         from deepcardio.meshdata import BipartiteData
         dataset_format=BipartiteData
@@ -42,7 +42,7 @@ def main(model_str, batch_size):
         
     elif model_str == "GNN":
         from GNN.model import initialize_GNN_model
-        model = initialize_GNN_model(size_hidden_layers=16)
+        model = initialize_GNN_model(size_hidden_layers=64)
         folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed/data_GNN.pt'
         from torch_geometric.data import Data
         dataset_format=Data

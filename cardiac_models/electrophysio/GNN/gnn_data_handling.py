@@ -8,7 +8,7 @@ from deepcardio.neuralop_core.transforms import UnitGaussianNormalizer
 from deepcardio.electrophysio import EPDataProcessor
 
 from torch_geometric.data import Data
-from sklearn.metrics import pairwise_distances
+from torch_cluster import radius
 
 DataScaler = UnitGaussianNormalizer
 
@@ -43,9 +43,13 @@ def single_case_handling(file, nbr_radius=0.25):
     if y.min() < 0.:
         return None    
 
-    pwd = pairwise_distances(input_geom)
-    np.fill_diagonal(pwd, 1e+6)
-    edge_index = torch.tensor(np.vstack(np.where(pwd <= nbr_radius)), dtype=torch.long)
+    row, col = radius(
+        x=input_geom, y=input_geom, r=nbr_radius,
+        max_num_neighbors=512
+    )
+
+    mask = row != col  # Remove self-loops (i == j)
+    edge_index = torch.stack([row[mask], col[mask]], dim=0)
     
     try:
         label = file.split('case')[1].split('_nplocs')[0]

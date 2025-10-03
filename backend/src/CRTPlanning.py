@@ -3,6 +3,8 @@ import numpy as np
 from scipy.optimize import differential_evolution
 import torch
 import time
+import joblib
+from pathlib import Path
 
 l2loss = LpLoss(d=2, p=2, reductions='mean')
 
@@ -34,7 +36,7 @@ class CRTWorkflow:
             ploc1_indice = self.epi_pts_indices[idx]
             ploc_xyz = self.sample['input_geom'][ploc1_indice].unsqueeze(0)
             output = model_inference.predict(
-                self.sample, Diso=d_iso, plocs=ploc_xyz, r=0.55)
+                self.sample, Diso=d_iso, plocs=ploc_xyz)
             loss = l2loss(output, y_true)
             return loss.item()
         
@@ -70,7 +72,7 @@ class CRTWorkflow:
                 ploc2_xyz), dim=0)
 
             output = model_inference.predict(
-                self.sample, Diso=self.d_iso, plocs=plocs_xyz, r=0.55)
+                self.sample, Diso=self.d_iso, plocs=plocs_xyz)
 
             return output.max().item()
         
@@ -93,20 +95,24 @@ class CRTWorkflow:
         self.act_max_crt = result.fun
         return None
     
-    def run_invproblem(self, file_token, model_inference, mesh_directory, xdmf_directory):
+    def run_invproblem(self, file_token, model_inference, inp_meshdir, xdmf_dir):
         self._inverse_problem(model_inference)
         print(f"intrinsic ploc: {self.ploc1_xyz}")
         output = model_inference.predict(
-            self.sample, Diso=self.d_iso, plocs=self.ploc1_xyz, r=0.55, crt_invproblem=True)
-        
+            self.sample, Diso=self.d_iso, plocs=self.ploc1_xyz, crt_invproblem=True).detach().cpu()
+        sample = model_inference.sample.cpu()
         model_inference.case_ID = file_token
         model_inference.write_xdmf(
-            mesh_directory=mesh_directory,
-            xdmf_directory=xdmf_directory
+            inp_meshdir=inp_meshdir + '/' + model_inference.case_ID + '.vtk',
+            xdmf_dir=xdmf_dir + model_inference.case_ID + '.xdmf',
+            sample=sample,
+            case_ID=file_token,
+            output=output,
+            local_error=model_inference.local_error
         )
         return None
     
-    def run_optim(self, file_token, model_inference, mesh_directory, xdmf_directory):
+    def run_optim(self, file_token, model_inference, inp_meshdir, xdmf_dir):
         self._optimization_problem(model_inference)
         plocs_xyz = torch.concat((
                 self.ploc1_xyz,
@@ -114,41 +120,84 @@ class CRTWorkflow:
 
         print(f"plocs_xyz: {plocs_xyz}")
         output = model_inference.predict(
-            self.sample, Diso=self.d_iso, plocs=plocs_xyz, r=0.55)
+            self.sample, Diso=self.d_iso, plocs=plocs_xyz).detach().cpu()
+        sample = model_inference.sample.cpu()
         
         model_inference.case_ID = file_token
         model_inference.write_xdmf(
-            mesh_directory=mesh_directory,
-            xdmf_directory=xdmf_directory
+            inp_meshdir=inp_meshdir + '/' + model_inference.case_ID + '.vtk',
+            xdmf_dir=xdmf_dir + model_inference.case_ID + '.xdmf',
+            sample=sample,
+            case_ID=file_token,
+            output=output,
+            local_error=None
         )
 
         print(self.d_iso, self.ploc1_xyz, self.ploc2_xyz)
         return None
+    
+    def save_state(self, token: str, state_dir: Path) -> None:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state = {
+            "d_iso": None if self.d_iso is None else float(self.d_iso),
+            "ploc1_xyz": None if self.ploc1_xyz is None else np.asarray(self.ploc1_xyz.detach().cpu()).reshape(-1).tolist(),
+            "ploc2_xyz": None if self.ploc2_xyz is None else np.asarray(self.ploc2_xyz.detach().cpu()).reshape(-1).tolist(),
+            "act_max_base": float(self.act_max_base),
+            "act_max_crt": float(self.act_max_crt),
+            "v": 1,
+        }
+        joblib.dump(state, state_dir / f"{token}.pkl")
+
+    @classmethod
+    def load_from_state(cls, token: str, state_dir: Path, *, file_path: str, model_inference) -> "CRTWorkflow":
+        """Recompute sample from file; rebuild a fresh workflow."""
+        state = joblib.load(state_dir / f"{token}.pkl")
+        sample = model_inference.file_to_inp_data(file=file_path)
+        wf = cls(sample)
+
+        wf.d_iso = state.get("d_iso")
+        wf.ploc1_xyz = state.get("ploc1_xyz")
+        wf.ploc2_xyz = state.get("ploc2_xyz")
+        wf.act_max_base = state.get("act_max_base", 200.0)
+        wf.act_max_crt = state.get("act_max_crt", 199.0)
+
+        if wf.ploc1_xyz is not None:
+            wf.ploc1_xyz = torch.tensor(
+                wf.ploc1_xyz,
+                dtype=wf.sample["input_geom"].dtype,
+                device=wf.sample["input_geom"].device).unsqueeze(0)
+            wf.ploc1_indice = (
+                torch.abs(wf.sample["input_geom"] - wf.ploc1_xyz).sum(dim=1)).argmin()
+        
+        if wf.ploc2_xyz is not None:
+            wf.ploc2_xyz = torch.tensor(
+                wf.ploc2_xyz,
+                dtype=wf.sample["input_geom"].dtype,
+                device=wf.sample["input_geom"].device).unsqueeze(0)
+            wf.ploc2_indice = (
+                torch.abs(wf.sample["input_geom"] - wf.ploc2_xyz).sum(dim=1)).argmin()
+        return wf
 
 
 if __name__ == "__main__":
     from pathlib import Path
-    from deepcardio.electrophysio import model, single_case_handling
+    from deepcardio.electrophysio import initialize_GINO_model, single_case_handling
     from deepcardio.electrophysio import ModelInference
     import os
     from dotenv import load_dotenv
-    from InputProcessing import handle_input_file
     from deepcardio.electrophysio import data_processing
     import sys
     sys.modules['data_processing'] = data_processing
+    BACKEND_PATH = Path(__file__).parent.parent
+    sys.path.insert(0, str(BACKEND_PATH))
+    from src.InputProcessing import handle_input_file
     load_dotenv()
     import subprocess
     import time
-
-    FENICS_CONTAINER = os.getenv(
-        'FENICS_CONTAINER_PATH', 
-        '/mnt/home/naghavis/Documents/Research/FEniCSx/fenics_legacy3.sif')
-    MODEL_CHECKPOINT_PATH = os.getenv(
-        'MODEL_CHECKPOINT_PATH',
-        '/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/GINO/ckpt/ckpt_16/best_model_snapshot_dict.pt')
-    DATAPROCESSOR_PATH = os.getenv(
-        'DATAPROCESSOR_PATH',
-        '/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/GINO/data_processor.pt')
+    model = initialize_GINO_model(16)
+    FENICS_CONTAINER = os.getenv('FENICS_CONTAINER_PATH')
+    MODEL_CHECKPOINT_PATH = os.getenv('MODEL_CHECKPOINT_PATH')
+    DATAPROCESSOR_PATH = os.getenv('DATAPROCESSOR_PATH')
 
     model_inference = ModelInference(
         model=model,
@@ -165,7 +214,10 @@ if __name__ == "__main__":
     PRED_DIR = Path("predicted")
     PRED_DIR.mkdir(parents=True, exist_ok=True)
 
-    token = 'sample_crt2'
+    CRT_RUNTIME_DIR = Path("crt_runtime")
+    CRT_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+
+    token = 'sample_crt'
     input_path = UPLOAD_DIR / f"{token}.vtk"
     output_path = CNVRS_DIR / f"{token}.vtp"
 
@@ -177,7 +229,7 @@ if __name__ == "__main__":
             "singularity", "exec",
             FENICS_CONTAINER,
             "python3",
-            "generate_EF.py",
+            "src/generate_EF.py",
             "--token", token
         ]
         
@@ -192,19 +244,23 @@ if __name__ == "__main__":
 
     run_generate_EF(token)
 
-    file_path = str('./uploads/sample_crt2.vtk')
+    file_path = str('./uploads/sample_crt.vtk')
     sample = model_inference.file_to_inp_data(file=file_path)
     crt_workflow = CRTWorkflow(sample)
     start_time = time.time()
     crt_workflow.run_invproblem(file_token=token,
                 model_inference=model_inference,
-                mesh_directory = str(UPLOAD_DIR) + '/',
-                xdmf_directory = str(PRED_DIR) + '/')
+                inp_meshdir = str(UPLOAD_DIR) + '/',
+                xdmf_dir = str(PRED_DIR) + '/')
+    crt_workflow.save_state(token, CRT_RUNTIME_DIR)
+
+    crt_workflow = CRTWorkflow.load_from_state(
+        token, CRT_RUNTIME_DIR, file_path=file_path, model_inference=model_inference)
 
     crt_workflow.run_optim(file_token=token,
                 model_inference=model_inference,
-                mesh_directory = str(UPLOAD_DIR) + '/',
-                xdmf_directory = str(PRED_DIR) + '/')
+                inp_meshdir = str(UPLOAD_DIR) + '/',
+                xdmf_dir = str(PRED_DIR) + '/')
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
 

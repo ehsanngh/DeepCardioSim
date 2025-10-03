@@ -89,5 +89,8 @@ image = [
 backend = [
   "fastapi[standard]",
   "vtk",
-  "open3d"
+  "open3d",
+  "rq",
+  "pytz",
+  "nvidia-ml-py",
 ]

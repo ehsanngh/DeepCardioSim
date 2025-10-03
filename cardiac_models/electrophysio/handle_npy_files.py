@@ -9,7 +9,7 @@ from pathlib import Path
 def handle_npy_files(
         model,
         folder_paths=['/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data/npy/'],
-        outp_name='data.pt',
+        outp_name='data_GINO.pt',
         query_res=[32, 32, 32],
         nbr_radius=0.25):
 
@@ -39,7 +39,7 @@ def handle_npy_files(
             continue
         meshes.append(data)
         print(f'{i} {file} loaded in {default_timer() - starttime} seconds.')
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 5000 == 0:
             torch.save(meshes, outp_dir / outp_name)
     
     torch.save(meshes, outp_dir / outp_name)

@@ -1,6 +1,8 @@
 import torch
 import meshio
+from pathlib import Path
 from scipy.spatial import cKDTree
+import numpy as np
 
 class ModelInference:
     def __init__(
@@ -27,7 +29,6 @@ class ModelInference:
         self.data_processor.eval()
         self.single_case_handling = single_case_handling
         
-        self.num_timesteps = 0 
         self.sample = None
         self.output = None
         self.local_error = None
@@ -46,27 +47,27 @@ class ModelInference:
         sample['a'][..., 1] = Diso * torch.ones_like(sample['a'][..., 1])
         return sample
     
-    def set_pacingsite(self, sample, plocs, r):
+    def set_pacingsite(self, sample, plocs):
         sample = sample.clone()
         locs = torch.as_tensor(
             plocs,
             dtype=sample['input_geom'].dtype,
             device=sample['input_geom'].device)
         
-        r = torch.as_tensor(
-            r,
-            dtype=sample['input_geom'].dtype,
-            device=sample['input_geom'].device)
+        num_plocs = locs.shape[0]
         
         dists = torch.cdist(sample['input_geom'], locs)
-        cond = (dists <= r).any(dim=1)
-            
-        if sample['a'].ndim == 3:
-            cond = cond.unsqueeze(-1)
-        sample['a'][..., 0] = torch.where(cond, 1., 0.)
+        closest_indices = []
+        for i in range(num_plocs):
+            closest_idx = torch.argmin(dists[:, i])
+            closest_indices.append(closest_idx)
+        
+        sample['a'][..., 0] = 0.
+        for idx in closest_indices:
+            sample['a'][idx, ..., 0] = 1.
         return sample
         
-    def predict(self, inp, Diso=None, plocs=None, r=0.5, crt_invproblem=False):
+    def predict(self, inp, Diso=None, plocs=None, crt_invproblem=False):
         if isinstance(inp, str) and self.single_case_handling is not None:
             sample = self.file_to_inp_data(file=inp)
         else:
@@ -77,7 +78,7 @@ class ModelInference:
             if 'y' in sample and not crt_invproblem:
                 del sample['y']
         if plocs is not None:
-            sample = self.set_pacingsite(sample, plocs, r)
+            sample = self.set_pacingsite(sample, plocs)
             if 'y' in sample and not crt_invproblem:
                 del sample['y']
 
@@ -92,52 +93,81 @@ class ModelInference:
                 flattened_output - flattened_y,
                 ord=2, dim=-1, keepdim=True
             )
-            self.local_error = norm_diff
+            local_error = norm_diff
+            self.local_error = local_error
 
         self.sample = sample
-        self.num_timesteps = output.shape[1]
         self.case_ID = sample.get('label', None)
         self.output = output
         return output
 
     def write_xdmf(
             self,
-            inp=None,
-            mesh_directory='../data/mesh/case',
-            xdmf_directory='./results/xdmf/case'):
-        if self.output is None:
-            self.predict(inp)
-        meshfile = mesh_directory + self.case_ID + '.vtk'
-        self.xdmf_file = xdmf_directory + self.case_ID + '.xdmf'
-        mesh = meshio.read(meshfile)
-        meshio_points = mesh.points
-
-        cells = mesh.cells_dict.get("tetra")
-        if cells is None:
-            raise ValueError("No tetrahedral cells found in the mesh")
+            inp_data=None,
+            inp_meshdir=None,
+            xdmf_dir=None,
+            sample=None,
+            case_ID=None,
+            output=None,
+            local_error=None):
+        if self.output is None and inp_data is not None:
+            self.predict(inp_data)
+        if inp_meshdir is None:
+            inp_meshdir = '/mnt/home/naghavis/Documents/Research/DeepCardioSim/deepcardio/LVmean/LV_mean.vtk'
+            npyfile = '/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data/npy/case'+ self.case_ID + '_nplocs1.npy'
+            if not Path(npyfile).exists():
+                npyfile = '/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data/npy/case'+ self.case_ID + '_nplocs2.npy'
+                if not Path(npyfile).exists():
+                    raise ValueError('No default case-specific npy file found for setting up the mesh please pass the input mesh directory and try again.')
+            npydata = np.load(npyfile)
+            mesh_points = npydata[:, :3]
+            mesh = meshio.read(inp_meshdir)
+            mesh.points = mesh_points
+            mesh.point_data.clear()
+        else:
+            mesh = meshio.read(inp_meshdir)
+            mesh_points = mesh.points
+            cells = mesh.cells_dict.get("tetra")
+            if cells is None:
+                raise ValueError("No tetrahedral cells found in the mesh")
         
-        output = self.output.detach().cpu()
-        data_points = self.sample['input_geom'].cpu()
-        tree = cKDTree(data_points)
-        _, indices = tree.query(meshio_points)
+        if xdmf_dir is None:
+            xdmf_file = './results/xdmf/case' + self.case_ID + '.xdmf'
+            self.xdmf_file = xdmf_file
+            Path(xdmf_file).parent.mkdir(parents=True, exist_ok=True)
+        else:
+            xdmf_file = xdmf_dir
+            self.xdmf_file = xdmf_dir
 
-        # Only reorder y and error if they have been computed
-        if 'y' in self.sample and self.local_error is not None:
-            y = self.sample['y'].cpu()
-            local_error = self.local_error.detach().cpu()
+        if output is None:
+            output = self.output.detach().cpu()
+        
+        num_timesteps = output.shape[1]
+        if sample is None:
+            sample = self.sample
+        if case_ID is None:
+            case_ID = self.case_ID
+        if local_error is None and self.local_error is not None:
+            local_error = self.local_error
+        data_points = sample['input_geom'].cpu()
+        tree = cKDTree(data_points)
+        _, indices = tree.query(mesh_points)
+        if 'y' in sample and local_error is not None:
+            y = sample['y'].cpu()
+            local_error = local_error.detach().cpu()
             reordered_y = y[indices]
             reordered_error = local_error[indices]
         else:
             reordered_y = None
             reordered_error = None
         
-        a = self.sample['a'].clone()
+        a = sample['a'].clone()
         if a.ndim == 2:
             a = a.unsqueeze(1)
         
-        with meshio.xdmf.TimeSeriesWriter(self.xdmf_file) as writer:
+        with meshio.xdmf.TimeSeriesWriter(xdmf_file) as writer:
             writer.write_points_cells(mesh.points, mesh.cells)
-            for i in range(self.num_timesteps):
+            for i in range(num_timesteps):
                 data1 = reordered_y[:, i, 0].numpy() if reordered_y is not None else None
                 data2 = output[indices][:, i, 0].numpy()
                 data3 = reordered_error[:, i, 0].numpy() if reordered_error is not None else None
@@ -155,8 +185,8 @@ class ModelInference:
                 if data3 is not None:
                     point_data["error"] = data3
 
-                if "computed_labels" in self.sample.keys():
-                    point_data["computed_labels"] = self.sample["computed_labels"][indices].cpu().numpy()
+                if "computed_labels" in sample.keys():
+                    point_data["computed_labels"] = sample["computed_labels"][indices].cpu().numpy()
                 writer.write_data(i, point_data=point_data)
 
 

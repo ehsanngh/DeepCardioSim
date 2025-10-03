@@ -2,7 +2,7 @@ import open3d as o3d
 import numpy as np
 import meshio
 from scipy.spatial import cKDTree
-from format_conversions import convert_vtk_to_plymesh, convert_pcd_to_plymesh, convert_ply_to_vtp, convert_vtk_to_vtp
+from src.format_conversions import convert_vtk_to_plymesh, convert_pcd_to_plymesh, convert_ply_to_vtp, convert_vtk_to_vtp
 import os
 
 def LVsurface_detection(input_file):

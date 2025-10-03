@@ -128,8 +128,8 @@ class GINO(BaseModel, name="GINO"):
             gno_coord_embed_dim=None,
             gno_embed_max_positions=None,
             gno_radius=0.033,
-            in_gno_mlp_hidden_layers=[80, 80, 80],
-            out_gno_mlp_hidden_layers=[512, 256],
+            in_gno_mlp_hidden_layers=None,
+            out_gno_mlp_hidden_layers=None,
             gno_mlp_non_linearity=F.gelu, 
             in_gno_transform_type='linear',
             out_gno_transform_type='linear',
@@ -252,6 +252,16 @@ class GINO(BaseModel, name="GINO"):
         # add f_y features if input GNO uses a nonlinear kernel
         if in_gno_transform_type == "nonlinear" or in_gno_transform_type == "nonlinear_kernelonly":
             in_kernel_in_dim += self.in_channels
+        
+        if in_gno_mlp_hidden_layers is None:
+            in_gno_mlp_hidden_layers = [80, 80, 80]
+        else:
+            in_gno_mlp_hidden_layers = in_gno_mlp_hidden_layers.copy()  # Make a copy!
+        
+        if out_gno_mlp_hidden_layers is None:
+            out_gno_mlp_hidden_layers = [512, 256]
+        else:
+            out_gno_mlp_hidden_layers = out_gno_mlp_hidden_layers.copy()
             
         in_gno_mlp_hidden_layers.insert(0, in_kernel_in_dim)
         in_gno_mlp_hidden_layers.append(fno_in_channels) 

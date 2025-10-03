@@ -85,8 +85,7 @@ target/
 # Others
 *.sb
 *.out
-*.sh
-
+*.rdb
 *.pkl
 *.pt
 *.tgz
@@ -106,6 +105,7 @@ venv/
 .env
 
 **/logs/
+**/log/
 **/tmp/
 **/results*/
 **/checkpoints*/
