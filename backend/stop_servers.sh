@@ -27,3 +27,5 @@ echo "[cleanup] Stopping Redis..."
 singularity instance stop redis 2>/dev/null || true
 
 echo "All services stopped and cleaned up"
+
+exit 0
