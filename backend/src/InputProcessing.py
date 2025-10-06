@@ -59,7 +59,7 @@ def handle_input_file(input_file, output_vtp_file):
     point_label = np.zeros(len(original_points))  # 0 is myocardium
     tree = cKDTree(original_points)
     distances, indices = tree.query(surface_points, k=1)
-    tolerance = 1e-10
+    tolerance = 1e-6
     valid_matches = distances < tolerance
     point_label[indices[valid_matches]] = surface_label[valid_matches]
     
