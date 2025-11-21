@@ -9,12 +9,13 @@ def initialize_GINO_model(n_fno_modes):
         gno_radius=0.1,
         gno_transform_type='linear',
         fno_n_modes=[n_fno_modes, n_fno_modes, n_fno_modes, 1],  # x_1, x_2, x_3, t
+        query_res=(28, 28, 28),  # Should be consistent with data processor
         fno_hidden_channels=64,
         fno_use_mlp=True,
         fno_norm='instance_norm',
         fno_ada_in_features=32,
         fno_factorization='tucker',
-        fno_rank=0.4,
+        fno_rank=0.01,
         fno_domain_padding=0.125,
         fno_mlp_expansion=1.0,
         fno_output_scaling_factor=1,

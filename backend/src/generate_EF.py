@@ -15,7 +15,7 @@ dolfin.parameters["form_compiler"]["quadrature_degree"] = 4
 isepiflip = False
 isendoflip = False
  
-def main(token, tol=0.5):
+def main(token, LVangle_endo=60., LVangle_epi=-60., tol=0.5):
     uploads_dir = Path(__file__).resolve().parent.parent / "uploads"
     
     # Input and output paths
@@ -30,12 +30,11 @@ def main(token, tol=0.5):
     # np.random.seed(case_ID + 1001)
     # LVangle_1 = np.random.uniform(40, 80)
     # LVangle_2 = np.random.uniform(-80, -40)
-    LVangle_1, LVangle_2 = 60., -60.
 
     if tol_is_okay:
         try:
             if rank == 0:
-                print(f"LVangle_1: {LVangle_1}, LVangle_2: {LVangle_2}")
+                print(f"LVangle_endo: {LVangle_endo}, LVangle_epi: {LVangle_epi}")
                 ugrid = readUGrid(input_vtk.as_posix())
                 xmlgrid, _, _ = extractFeNiCsBiVFacet(ugrid, geometry="LV", tol=tol)
                 with dolfin.HDF5File(dolfin.MPI.comm_self, hdf5_dir, "w") as f:
@@ -60,7 +59,7 @@ def main(token, tol=0.5):
 
     isendoflip = False
     ef_projected, *_ = addLVfiber(
-        xmlgrid, fiberFS_nodal, "geometry", LVangle_1, LVangle_2, [], isepiflip, isendoflip, ztol=tol
+        xmlgrid, fiberFS_nodal, "geometry", LVangle_endo, LVangle_epi, [], isepiflip, isendoflip, ztol=tol
     )
     dolfin.MPI.barrier(comm)
 
@@ -74,14 +73,14 @@ def main(token, tol=0.5):
     owned_mask = (gdofs_loc >= own_start) & (gdofs_loc < own_end)
 
     coords_owned = coords_loc[owned_mask]
-    vals_owned   = np.column_stack([
+    vals_owned = np.column_stack([
         efx.vector().get_local()[owned_mask],
         efy.vector().get_local()[owned_mask],
         efz.vector().get_local()[owned_mask],
     ])
 
     all_coords = comm.gather(coords_owned, root=0)
-    all_vals = comm.gather(vals_owned,   root=0)
+    all_vals = comm.gather(vals_owned, root=0)
 
     if rank == 0:
         coords_all = np.concatenate(all_coords, axis=0)

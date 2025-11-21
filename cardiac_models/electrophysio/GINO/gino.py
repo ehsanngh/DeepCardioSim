@@ -137,7 +137,8 @@ class GINO(BaseModel, name="GINO"):
             gno_use_torch_scatter=True,
             out_gno_tanh=None,
             fno_in_channels=3,
-            fno_n_modes=(16, 16, 16), 
+            fno_n_modes=(16, 16, 16),
+            query_res=(28, 28, 28), 
             fno_hidden_channels=64,
             fno_lifting_channels=256,
             fno_projection_channels=256,
@@ -175,6 +176,19 @@ class GINO(BaseModel, name="GINO"):
         self.out_channels = out_channels
         self.gno_coord_dim = gno_coord_dim
         self.fno_hidden_channels = fno_hidden_channels
+
+        self.grid_size = query_res
+        self.coord_dim = len(self.grid_size)
+
+        latent_queries_init = torch.stack(
+            torch.meshgrid(
+                *[torch.linspace(0., 1., self.grid_size[i]) for i in range(self.coord_dim)],
+                indexing="ij"
+            ), axis=-1
+        )  # Shape: [grid_size[0], grid_size[1], grid_size[2], coord_dim]
+        
+        # Register as buffer (non-trainable parameter that moves with model)
+        self.register_buffer('latent_queries_init', latent_queries_init)
 
         # TODO: make sure this makes sense in all contexts
         fno_in_channels = self.in_channels
@@ -320,7 +334,7 @@ class GINO(BaseModel, name="GINO"):
     def integrate_latent(self, in_p, out_p, latent_embed, edge_index):
         batch_size, *grid, num_timepoints, fno_hidden_channels = latent_embed.shape
         #Embed input points
-        n_in = in_p.view(-1, len(grid)).shape[0]
+        n_in = in_p.reshape((-1, len(grid))).shape[0]
         if self.pos_embed is not None:
             in_p_embed = self.pos_embed(in_p.reshape(-1, )).reshape((n_in, -1))
         else:
@@ -350,7 +364,7 @@ class GINO(BaseModel, name="GINO"):
         out = self.projection(out)
         return out
     
-    def forward(self,  a, input_geom, latent_queries, edge_index, ada_in=None, **kwargs):
+    def forward(self, a, input_geom, edge_index, ada_in=None, **kwargs):
         """forward pass of GNO --> latent embedding w/FNO --> GNO out
 
         Parameters
@@ -361,39 +375,45 @@ class GINO(BaseModel, name="GINO"):
         input_geom : torch.Tensor
             input domain coordinate mesh
             shape (n_in, gno_coord_dim)
-        latent_queries : torch.Tensor
-            latent geometry on which to compute FNO latent embeddings
-            a grid on [0,1] x [0,1] x ....
-            shape (1, gno_coord_dim, n_gridpts_1, .... n_gridpts_n)
         output_queries : torch.Tensor
             points at which to query the final GNO layer to get output
             shape (n_out, gno_coord_dim)
         ada_in : torch.Tensor, optional
             adaptive scalar instance parameter, defaults to None
         """
-        
         output_queries = kwargs.get('output_queries', input_geom)
-        
-        batch_size, *grid_size, coord_dim = latent_queries.shape
+
+        if 'batch' in kwargs:
+            batch_size = kwargs['batch'].max().item() + 1
+        else:
+            batch_size = 1
         num_timepoints = a.shape[1]
 
+        latent_queries = self.latent_queries_init.unsqueeze(0).expand(
+            batch_size, *self.grid_size, self.coord_dim
+            )
+
         spatial_nbrs = self.crs_nb_frmt(
-            edge_index, length=batch_size*torch.tensor(grid_size).prod())
+            edge_index,
+            length=batch_size*torch.tensor(self.grid_size).prod().item())
         
-        in_p = self.gno_in(y=input_geom,
-                           x=latent_queries.reshape((-1, coord_dim)),
-                           f_y=a,
-                           neighbors=spatial_nbrs)
-        
+        in_p = self.gno_in(
+            y=input_geom,
+            x=latent_queries.reshape((-1, self.coord_dim)),
+            f_y=a,
+            neighbors=spatial_nbrs)
+
         # shape (batch, grid1, ...gridn, fno_in_channels)
-        in_p = in_p.view((batch_size, *grid_size, num_timepoints, self.fno_in_channels))
-        
+        in_p = in_p.view((
+            batch_size, *self.grid_size, num_timepoints, self.fno_in_channels))
+
         # take apply fno in latent space
-        latent_embed = self.latent_embedding(in_p=in_p, 
-                                             ada_in=ada_in)
+        latent_embed = self.latent_embedding(
+            in_p=in_p, ada_in=ada_in)
 
         # Integrate latent space to output queries
-        out = self.integrate_latent(latent_queries, output_queries, latent_embed, edge_index)
+        out = self.integrate_latent(
+            latent_queries, output_queries, latent_embed, edge_index)
         return out
 
 
@@ -413,10 +433,15 @@ class CRSNeighborFormat(torch.nn.Module):
         sort_indices = torch.argsort(sources)
         nbr_indices = targets[sort_indices]
         nbrhd_sizes = torch.cumsum(
-            torch.bincount(sources, minlength=length), dim=0) # num points in each neighborhood, summed cumulatively
-        splits = torch.cat((torch.tensor([0.]).to(edge_index.device), nbrhd_sizes))
+            torch.bincount(sources, minlength=length),
+            dim=0,
+            dtype=edge_index.dtype) # num points in each neighborhood, summed cumulatively
+        splits = torch.cat(
+            (torch.zeros(1, dtype=edge_index.dtype, device=edge_index.device),
+             nbrhd_sizes)
+             )
         nbr_dict = {}
-        nbr_dict['neighbors_index'] = nbr_indices.long().to(edge_index.device)
+        nbr_dict['neighbors_index'] = nbr_indices.long()
         nbr_dict['neighbors_row_splits'] = splits.long()
         return nbr_dict
 

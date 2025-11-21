@@ -29,7 +29,7 @@ CRT_RUNTIME_DIR = Path("crt_runtime")
 CRT_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 model_inference = ModelInference(
-    model=initialize_GINO_model(16),
+    model=initialize_GINO_model(int(os.getenv('NUM_GINO_FNO_MODES', 16))),
     model_checkpoint_path=MODEL_CHECKPOINT_PATH,
     dataprocessor_path=DATAPROCESSOR_PATH,
     single_case_handling=single_case_handling,

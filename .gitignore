@@ -100,6 +100,7 @@ target/
 *.vtp
 *.h5
 *.xdmf
+*.csv
 
 venv/
 .env
@@ -135,4 +136,5 @@ secrets.json
 *.txt
 
 pino_test.ipynb
+zenodo_upload.py
 

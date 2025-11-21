@@ -46,8 +46,8 @@ if len(API_VISIBLE_GPUS) != NUM_GPUS:
     NUM_GPUS = len(API_VISIBLE_GPUS)
     raise Warning("NUM_GPUS does not match API_VISIBLE_GPUS length. Adjusting NUM_GPUS accordingly.")
 
-torch.set_num_threads(NUM_PROCS)
-torch.set_num_interop_threads(NUM_PROCS)
+# torch.set_num_threads(NUM_PROCS)
+# torch.set_num_interop_threads(NUM_PROCS)
 
 def is_proc_available(max_unfinished: int = max(NUM_PROCS * NUM_WORKERS - NUM_GPUS, 1)) -> bool:
     running = len(StartedJobRegistry('ef', connection=redis_conn))
@@ -76,7 +76,7 @@ gpu_warm_pool = None
 
 def initialize_model_inference(device):
     return ModelInference(
-        model=initialize_GINO_model(16),
+        model=initialize_GINO_model(int(os.getenv('NUM_GINO_FNO_MODES', 16))),
         model_checkpoint_path=MODEL_CHECKPOINT_PATH,
         dataprocessor_path=DATAPROCESSOR_PATH,
         single_case_handling=single_case_handling,

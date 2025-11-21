@@ -35,24 +35,17 @@ def main(model_str, batch_size):
     if model_str == "GINO":
         from GINO.model import initialize_GINO_model
         model = initialize_GINO_model(n_fno_modes=16)
-        folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed/data_GINO.pt'
-        from deepcardio.meshdata import BipartiteData
-        dataset_format=BipartiteData
-        save_dir = "/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/GINO/ckpt"
-        
     elif model_str == "GNN":
         from GNN.model import initialize_GNN_model
         model = initialize_GNN_model(size_hidden_layers=64)
-        folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed/data_GNN.pt'
-        from torch_geometric.data import Data
-        dataset_format=Data
-        save_dir = "/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/GNN/ckpt"
-
+    
+    save_dir = f"/mnt/home/naghavis/Documents/Research/DeepCardioSim/cardiac_models/electrophysio/{model_str}/ckpt"
     dltrain, dltest, data_processor = load_dataset(
-        model=model_str,
-        folder_path=folder_path,
-        train_batch_sizes=[batch_size], test_batch_sizes=[batch_size, batch_size],
-        use_distributed=use_distributed, dataset_format=dataset_format)
+        model_str=model_str,
+        folder_path='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data_processed',
+        train_batch_sizes=[batch_size],
+        test_batch_sizes=[int(max(batch_size // 1.5, 1)), int(max(batch_size // 1.5, 1))],
+        use_distributed=use_distributed)
 
 
     dltest = {0: dltest[0]}
@@ -81,10 +74,10 @@ def main(model_str, batch_size):
     
     trainer = Trainer(
         model=model,
-        max_epochs=2000,
+        max_epochs=3000,
         device=device,
         data_processor=data_processor,
-        amp_autocast=False,
+        amp_autocast=True,
         eval_interval=2,
         log_output=True,
         use_distributed=use_distributed,
@@ -114,6 +107,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default="GINO", required=False)
-    parser.add_argument('--batch_size', type=int, default=35, required=False)
+    parser.add_argument('--batch_size', type=int, default=25, required=False)
     args = parser.parse_args()
     main(args.model, args.batch_size)

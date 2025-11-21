@@ -18,6 +18,7 @@ def load_training_state(save_dir: Union[str, Path],
                         optimizer: nn.Module=None,
                         scheduler: nn.Module=None,
                         regularizer: nn.Module=None,
+                        gradscaler: torch.amp.GradScaler=None,
                         map_location: dict=None) -> dict:
     
     """load_training_state returns model and optional other training modules
@@ -93,6 +94,8 @@ def load_training_state(save_dir: Union[str, Path],
             scheduler.load_state_dict(snapshot["SCHEDULER"])
         if regularizer is not None:
             regularizer.load_state_dict(snapshot["REGULARIZER"])
+        if gradscaler is not None:
+            gradscaler.load_state_dict(snapshot["GRADSCALER"])
     
     else:
         print((f"[{map_location}] The file {save_path} does not exist. Model was not loaded"))
@@ -108,7 +111,8 @@ def save_training_state(
         best_loss = None,
         optimizer: nn.Module = None,
         scheduler: nn.Module = None,
-        regularizer: nn.Module = None) -> None:
+        regularizer: nn.Module = None,
+        gradscaler: torch.amp.GradScaler = None) -> None:
     """save_training_state returns model and optional other training modules
     saved from prior training for downstream use
 
@@ -136,6 +140,8 @@ def save_training_state(
             snapshot["SCHEDULER"] = scheduler.state_dict()
         if regularizer is not None:
             snapshot["REGULARIZER"] = regularizer.state_dict()
+        if gradscaler is not None:
+            snapshot["GRADSCALER"] = gradscaler.state_dict()
     
     if isinstance(save_dir, str):
         save_dir = Path(save_dir)

@@ -1,7 +1,6 @@
 # Source: https://github.com/neuraloperator/neuraloperator/blob/main/neuralop/training/trainer.py
 
 import torch
-from torch.cuda import amp
 from torch import nn
 from timeit import default_timer
 from pathlib import Path
@@ -10,7 +9,6 @@ import sys
 import json
 from .losses import LpLoss
 from deepcardio.train_state import load_training_state, save_training_state
-
 
 class Trainer:
     """
@@ -55,15 +53,23 @@ class Trainer:
         self.log_output = log_output
         self.verbose = verbose
         self.use_distributed = use_distributed
-        self.amp_autocast = amp_autocast
+        self.autocast_device_type = None
+        self.mixed_precision = amp_autocast
+        self.gradscaler = None
         
         if device == 'cpu':
             self.gpu_id = 'cpu'
+            self.autocast_device_type = 'cpu'
+            self.gradscaler = torch.amp.GradScaler('cpu') if amp_autocast else None
         elif self.use_distributed:
             import os
             self.gpu_id = f'cuda:{int(os.environ["LOCAL_RANK"])}'
+            self.autocast_device_type = 'cuda'
+            self.gradscaler = torch.amp.GradScaler("cuda") if amp_autocast else None
         else:
             self.gpu_id = 'cuda:0'
+            self.autocast_device_type = 'cuda'
+            self.gradscaler = torch.amp.GradScaler("cuda") if amp_autocast else None
 
         self.model = model.to(self.gpu_id)
         self.data_processor = data_processor.to(self.gpu_id)
@@ -213,26 +219,31 @@ class Trainer:
         
         if self.use_distributed:
             train_loader.sampler.set_epoch(epoch)
-
+            
         for idx, sample in enumerate(train_loader):
             loss = self.train_one_batch(idx, sample, training_loss)
-            loss.backward()
-            self.optimizer.step()
-
+            if self.gradscaler is not None:
+                self.gradscaler.scale(loss).backward()
+                self.gradscaler.step(self.optimizer)
+                self.gradscaler.update()
+            else:
+                loss.backward()
+                self.optimizer.step()
             train_err += loss.item() * len(sample)
             with torch.no_grad():
                 avg_loss += loss.item() * len(sample)
                 if self.regularizer:
                     avg_lasso_loss += self.regularizer.loss.item() * len(sample)
 
+        epoch_train_time = default_timer() - t1
+
+        train_err /= len(train_loader.sampler)
+
         if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             self.scheduler.step(train_err)
         else:
             self.scheduler.step()
-
-        epoch_train_time = default_timer() - t1
-
-        train_err /= len(train_loader.sampler)
+        
         avg_loss /= self.n_samples
         if self.regularizer:
             avg_lasso_loss /= self.n_samples
@@ -360,15 +371,14 @@ class Trainer:
                 for k, v in sample.items()
                 if torch.is_tensor(v)
             }
-
         self.n_samples += sample["y"].shape[0]
 
-        if self.amp_autocast:
-            with amp.autocast(enabled=True):
+        if self.mixed_precision:
+            with torch.autocast(device_type=self.autocast_device_type):
                 out = self.model(**sample)
         else:
             out = self.model(**sample)
-        
+
         if self.epoch == 0 and idx == 0 and self.verbose:
             print(f"[{self.gpu_id}] Raw outputs of shape {out.shape}")
 
@@ -376,9 +386,8 @@ class Trainer:
             out, sample = self.data_processor.postprocess(out, sample)
 
         loss = 0.0
-
-        if self.amp_autocast:
-            with amp.autocast(enabled=True):
+        if self.mixed_precision:
+            with torch.autocast(device_type=self.autocast_device_type):
                 loss += training_loss(out, **sample)
         else:
             loss += training_loss(out, **sample)
@@ -423,7 +432,11 @@ class Trainer:
 
         self.n_samples += sample["y"].size(0)
 
-        out = self.model(**sample)
+        if self.mixed_precision:
+            with torch.autocast(device_type=self.autocast_device_type):
+                out = self.model(**sample)
+        else:
+            out = self.model(**sample)
 
         if self.data_processor is not None:
             out, sample = self.data_processor.postprocess(out, sample)
@@ -431,7 +444,11 @@ class Trainer:
         eval_step_losses = {}
 
         for loss_name, loss in eval_losses.items():
-            val_loss = loss(out, **sample)
+            if self.mixed_precision:
+                with torch.autocast(device_type=self.autocast_device_type):
+                    val_loss = loss(out, **sample)
+            else:
+                val_loss = loss(out, **sample)
             eval_step_losses[loss_name] = val_loss
         
         if return_output:
@@ -526,6 +543,7 @@ class Trainer:
             optimizer=self.optimizer,
             scheduler=self.scheduler,
             regularizer=self.regularizer,
+            gradscaler=self.gradscaler,
             map_location=self.gpu_id)
 
             self.epoch = epoch + 1
@@ -559,7 +577,8 @@ class Trainer:
             best_loss=self.best_loss,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
-            regularizer=self.regularizer
+            regularizer=self.regularizer,
+            gradscaler=self.gradscaler
             )
         
         if save_best is False:

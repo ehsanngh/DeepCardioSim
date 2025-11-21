@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Load env
 set -a
-. "$(dirname "$0")/.env.path"
+. "$(dirname "$0")/../.env"
 set +a
 
 mkdir -p "$LOG_DIR"

@@ -3,6 +3,27 @@ import meshio
 from pathlib import Path
 from scipy.spatial import cKDTree
 import numpy as np
+from torch_cluster import radius
+
+
+def npy_to_mesh(
+    inp_npyfile,
+    outp_meshfile,
+    single_case_handling: callable,
+    inp_vtkfile='/mnt/home/naghavis/Documents/Research/DeepCardioSim/deepcardio/LVmean/LV_mean.vtk'):
+    sample = single_case_handling(inp_npyfile)
+    mesh = meshio.read(inp_vtkfile)
+    mesh.points = np.load(inp_npyfile)[:, :3]
+    tree = cKDTree(sample['input_geom'].cpu().numpy())
+    _, indices = tree.query(mesh.points)
+    mesh.point_data.clear()
+    mesh.point_data['ploc_bool'] = sample['a'][indices, ..., 0].cpu().numpy()
+    mesh.point_data['D_iso'] = sample['a'][indices, ..., 1].cpu().numpy()
+    mesh.point_data['ef'] = sample['a'][indices, ..., 2:].cpu().numpy()
+    mesh.point_data['activation_time'] = sample['y'][indices, ..., 0].cpu().numpy()
+    meshio.write(outp_meshfile, mesh)
+    return mesh
+
 
 class ModelInference:
     def __init__(
@@ -34,6 +55,7 @@ class ModelInference:
         self.local_error = None
         self.case_ID = None
         self.xdmf_file = None
+        self.ploc_bool_exact = None
 
     def file_to_inp_data(self, file):
         if self.single_case_handling is None:
@@ -65,6 +87,12 @@ class ModelInference:
         sample['a'][..., 0] = 0.
         for idx in closest_indices:
             sample['a'][idx, ..., 0] = 1.
+        self.ploc_bool_exact = sample['a'][..., 0].clone()
+
+        for idx in closest_indices:
+            query_point = sample['input_geom'][idx].unsqueeze(0)
+            row, col = radius(query_point, sample['input_geom'], r=.75)
+            sample['a'][row, ..., 0] = 1.
         return sample
         
     def predict(self, inp, Diso=None, plocs=None, crt_invproblem=False):
@@ -121,11 +149,15 @@ class ModelInference:
                     raise ValueError('No default case-specific npy file found for setting up the mesh please pass the input mesh directory and try again.')
             npydata = np.load(npyfile)
             mesh_points = npydata[:, :3]
+            if self.ploc_bool_exact is None:
+                self.ploc_bool_exact = npydata[:, 3:4]
             mesh = meshio.read(inp_meshdir)
             mesh.points = mesh_points
             mesh.point_data.clear()
         else:
             mesh = meshio.read(inp_meshdir)
+            if self.ploc_bool_exact is None:
+                self.ploc_bool_exact = np.array(mesh.point_data['ploc_bool'], dtype=np.float64).reshape((-1, 1))
             mesh_points = mesh.points
             cells = mesh.cells_dict.get("tetra")
             if cells is None:
@@ -171,7 +203,10 @@ class ModelInference:
                 data1 = reordered_y[:, i, 0].numpy() if reordered_y is not None else None
                 data2 = output[indices][:, i, 0].numpy()
                 data3 = reordered_error[:, i, 0].numpy() if reordered_error is not None else None
-                data4 = a[indices, i, -5].cpu().numpy()
+                if isinstance(self.ploc_bool_exact, torch.Tensor):
+                    data4 = self.ploc_bool_exact[indices].cpu().numpy()
+                else:
+                    data4 = self.ploc_bool_exact
                 data5 = a[indices, i, -4].cpu().numpy()
                 data6 = a[indices, i, -3:].cpu().numpy()
                 point_data = {
@@ -190,3 +225,9 @@ class ModelInference:
                 writer.write_data(i, point_data=point_data)
 
 
+if __name__ == "__main__":
+    from raw_data_handling import single_case_handling
+    mesh = npy_to_mesh(
+        inp_npyfile='/mnt/research/compbiolab/Ehsan/DeepCardioSim/cardiac_models/electrophysio/data/npy/case2175_nplocs1.npy',
+        outp_meshfile='./case2900.xdmf',
+        single_case_handling=single_case_handling)

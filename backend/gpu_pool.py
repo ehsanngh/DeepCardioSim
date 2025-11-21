@@ -273,7 +273,7 @@ if __name__ == "__main__":
     from deepcardio.electrophysio import initialize_GINO_model, single_case_handling
     def initialize_model_inference(device):
         return ModelInference(
-            model=initialize_GINO_model(16),
+            model=initialize_GINO_model(int(os.getenv('NUM_GINO_FNO_MODES', 16))),
             model_checkpoint_path=os.getenv("MODEL_CHECKPOINT_PATH"),
             dataprocessor_path=os.getenv("DATAPROCESSOR_PATH"),
             single_case_handling=single_case_handling,

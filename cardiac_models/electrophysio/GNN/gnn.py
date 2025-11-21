@@ -71,7 +71,18 @@ class MLP(torch.nn.Module):
         return f'{self.__class__.__name__}({str(self.channel_list)[1:-1]})'
 
 
-def DownSample(id, x, edge_index, pos_x, pool, pool_ratio, r, training, batches, ptrs):
+def DownSample(
+    id,
+    x,
+    edge_index,
+    pos_x,
+    pool,
+    pool_ratio,
+    r,
+    training,
+    batches,
+    ptrs,
+    ploc_bool=None):
     y = x.clone()
     n_batch = len(ptrs[-1]) - 1
     n_nodes_per_batch = ptrs[-1][1:] - ptrs[-1][:-1]
@@ -83,9 +94,28 @@ def DownSample(id, x, edge_index, pos_x, pool, pool_ratio, r, training, batches,
         k = (pool_ratio*n_nodes_per_batch).ceil().long()
         max_k = k.max().item()
         
-        indices = torch.arange(max_n, device=x.device).unsqueeze(0).expand(n_batch, max_n)  # creates a tensor of [[0, 1, ..., max_n] * n_batch]
+        indices = torch.arange(
+            max_n, device=x.device
+            ).unsqueeze(0).expand(n_batch, max_n)  # creates a tensor of [[0, 1, ..., max_n] * n_batch]
         mask = indices < n_nodes_per_batch.unsqueeze(1)  # returns False for the extra nodes
         rand_vals = torch.rand(n_batch, n_nodes_per_batch.max(), device=x.device)
+
+        if ploc_bool is not None:
+            ploc_flat = ploc_bool.flatten()
+            for b_idx in range(n_batch):
+                batch_start = ptrs[-1][b_idx].item()
+                batch_end = ptrs[-1][b_idx + 1].item()
+                batch_ploc = ploc_flat[batch_start:batch_end]
+                pacing_mask_local = batch_ploc > 0.5
+                keep_target = int((pacing_mask_local.sum().item() + 4) // 5)  # At least 20% preserving pacing points
+                if keep_target > 0:
+                    pacing_indices = torch.nonzero(
+                        pacing_mask_local, as_tuple=False).flatten()
+                    perm = torch.randperm(
+                        pacing_mask_local.sum().item(), device=x.device)
+                    keep_local = pacing_indices[perm[:keep_target]]
+                    # Set very small values to ensure they are selected first in sorting
+                    rand_vals[b_idx, keep_local] = -1.0
         rand_vals[~mask] = 2.0  # keeps extra nodes at the far right even after sorting
         
         _, sorted_indices = torch.sort(rand_vals, dim=1)
@@ -99,15 +129,27 @@ def DownSample(id, x, edge_index, pos_x, pool, pool_ratio, r, training, batches,
     pos_x = pos_x[id_sampled]
     id.append(id_sampled)
     new_batch = batches[-1][id_sampled]
-    new_ptr = torch.cat([torch.tensor([0], device=x.device), torch.bincount(new_batch).cumsum(dim=0)])
+    new_ptr = torch.cat(
+        [torch.tensor([0], device=x.device),
+         torch.bincount(new_batch).cumsum(dim=0)])
 
     batches.append(new_batch)
     ptrs.append(new_ptr)
 
     if training:
-        edge_index_sampled = nng.radius_graph(x = pos_x.detach(), r = r, loop = True, max_num_neighbors = 32, batch=new_batch)
+        edge_index_sampled = nng.radius_graph(
+            x = pos_x.detach(),
+            r = r,
+            loop = True,
+            max_num_neighbors = 32,
+            batch=new_batch)
     else:
-        edge_index_sampled = nng.radius_graph(x = pos_x.detach(), r = r, loop = True, max_num_neighbors = 256, batch=new_batch)
+        edge_index_sampled = nng.radius_graph(
+            x = pos_x.detach(),
+            r = r,
+            loop = True,
+            max_num_neighbors = 128,
+            batch=new_batch)
 
     return y, edge_index_sampled
 
@@ -131,7 +173,7 @@ class GraphUNet(nn.Module):
             layer = 'SAGE',
             pool = 'random',
             pool_ratio = [.75, .75, .666, .666],
-            list_r = [.375, .75, 1.25, 2.],
+            list_r = [0.5, .75, 1.25, 1.75, 2.5],
             bn_bool = False,
             ):
         super(GraphUNet, self).__init__()
@@ -140,7 +182,8 @@ class GraphUNet(nn.Module):
         self.layer = layer
         self.pool_type = pool
         self.pool_ratio = pool_ratio
-        self.list_r = list_r
+        self.r_first = list_r[0]
+        self.list_r = list_r[1:]
         self.size_hidden_layers = size_hidden_layers
         self.size_hidden_layers_init = size_hidden_layers
         self.mlp_hidden_channels = mlp_hidden_channels
@@ -276,7 +319,7 @@ class GraphUNet(nn.Module):
                     allow_single_element = True
                 ))
 
-    def forward(self, a, input_geom, edge_index, **kwargs):
+    def forward(self, a, input_geom, **kwargs):
         if 'batch' not in kwargs:
             kwargs['batch'] = torch.zeros(
                 a.size(0), dtype=torch.long, device=a.device)
@@ -286,7 +329,21 @@ class GraphUNet(nn.Module):
         id = []
         batches = [kwargs['batch']]
         ptrs = [kwargs['ptr']]
-        edge_index_list = [edge_index.clone()]
+        if self.training:
+            edge_index = nng.radius_graph(
+                x = input_geom,
+                r = self.r_first,
+                loop = True,
+                max_num_neighbors = 32,
+                batch=kwargs['batch'])
+        else:
+            edge_index = nng.radius_graph(
+                x = input_geom,
+                r = self.r_first,
+                loop = True,
+                max_num_neighbors = 128,
+                batch=kwargs['batch'])
+        edge_index_list = [edge_index]
         pos_x_list = []
         z = self.encoder(a)
         if self.res:
@@ -298,16 +355,40 @@ class GraphUNet(nn.Module):
             z = self.bn[0](z)
 
         z = self.activation(z)
-        z_list = [z.clone()]
+        z_list = [z]
         for n in range(self.L - 1):
             pos_x = input_geom if n == 0 else pos_x[id[n - 1]]
-            pos_x_list.append(pos_x.clone())
+            pos_x_list.append(pos_x)
+
+            ploc_bool = a[:, 0:1] if n == 0 else a[:, 0:1][id[n - 1]]
 
             if self.pool_type != 'random':
-                z, edge_index = DownSample(id, z, edge_index, pos_x, self.pool[n], self.pool_ratio[n], self.list_r[n], self.training, batches, ptrs)
+                z, edge_index = DownSample(
+                    id,
+                    z,
+                    edge_index,
+                    pos_x,
+                    self.pool[n],
+                    self.pool_ratio[n],
+                    self.list_r[n],
+                    self.training,
+                    batches,
+                    ptrs,
+                    ploc_bool)
             else:
-                z, edge_index = DownSample(id, z, edge_index, pos_x, None, self.pool_ratio[n], self.list_r[n], self.training, batches, ptrs)
-            edge_index_list.append(edge_index.clone())
+                z, edge_index = DownSample(
+                    id,
+                    z,
+                    edge_index,
+                    pos_x,
+                    None,
+                    self.pool_ratio[n],
+                    self.list_r[n],
+                    self.training,
+                    batches,
+                    ptrs,
+                    ploc_bool)
+            edge_index_list.append(edge_index)
 
             z = self.down_layers[n + 1](z, edge_index)
 
@@ -315,8 +396,8 @@ class GraphUNet(nn.Module):
                 z = self.bn[n + 1](z)
 
             z = self.activation(z)
-            z_list.append(z.clone())
-        pos_x_list.append(pos_x[id[-1]].clone())
+            z_list.append(z)
+        pos_x_list.append(pos_x[id[-1]])
         
         for n in range(self.L - 1, 0, -1):
             z = UpSample(
@@ -329,7 +410,7 @@ class GraphUNet(nn.Module):
 
             z = self.activation(z) if n != 1 else z
 
-        del(z_list, pos_x_list, edge_index_list, batches, ptrs)
+        del(z_list, pos_x_list, edge_index_list, batches, ptrs, id)
 
         if self.res:
             z = z + z_res

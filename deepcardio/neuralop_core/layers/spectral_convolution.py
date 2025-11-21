@@ -430,6 +430,11 @@ class SpectralConv(BaseSpectralConv):
         fft_size[-1] = fft_size[-1] // 2 + 1  # Redundant last coefficient
         fft_dims = list(range(-self.order, 0))
 
+        input_dtype = x.dtype
+
+        if self.fno_block_precision == "full" and input_dtype == torch.float16:
+            x = x.float()
+
         if self.fno_block_precision == "half":
             x = x.half()
 
@@ -472,7 +477,9 @@ class SpectralConv(BaseSpectralConv):
 
         if self.bias is not None:
             x = x + self.bias[indices, ...]
-
+        
+        if self.fno_block_precision == "full" and input_dtype == torch.float16 and x.dtype != torch.float16:
+            x = x.half()
         return x
 
     def get_conv(self, indices):

@@ -10,11 +10,11 @@ Setup
 Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
 
-To set up the environment variables, update `.env.path` and copy it to `../.env`:
+To set up the environment variables, update `.env.example` and copy it to `../.env`:
 
 .. code-block:: bash
    
-   cp .env.path ../.env
+   cp .env.example ../.env
 
 Required Files
 ~~~~~~~~~~~~~~

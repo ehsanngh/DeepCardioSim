@@ -5,8 +5,12 @@ import torch
 import time
 import joblib
 from pathlib import Path
+from torch_geometric.data import Batch
+from torch_cluster import radius
+from torch_scatter import scatter_max
 
 l2loss = LpLoss(d=2, p=2, reductions='mean')
+l2loss.reduce_dims = None
 
 class CRTWorkflow:
     def __init__(self, sample):
@@ -19,70 +23,151 @@ class CRTWorkflow:
         self.ploc2_xyz = None
         self.act_max_base = 200
         self.act_max_crt = 199
-    
-    def _inverse_problem(self, model_inference):
-        y_true = self.sample['y'].to(model_inference.device)
-        epi_vals = y_true[self.epi_pts_indices]
 
+    def _prepare_vectorized_optimization(self, model_inference, batch_size, invprob_flag):
+        self.sample['a'][:, ..., 0] = 0.
+        row, col = radius(
+                self.sample['input_geom'][self.epi_pts_indices],
+                self.sample['input_geom'],
+                r=.75,
+                max_num_neighbors=512)
+        
+        neighbors_dict = {}
+        for i, epi_idx in enumerate(self.epi_pts_indices):
+            neighbors_dict[int(epi_idx)] = row[col == i]
+        
+        max_num_neighbors = max(len(neighbors) for neighbors in neighbors_dict.values())
+
+        neighbors_padded = torch.full(
+            (len(self.epi_pts_indices), max_num_neighbors), -1, dtype=torch.long, device=model_inference.device)
+        neighbors_mask = torch.zeros(
+            (len(self.epi_pts_indices), max_num_neighbors), dtype=torch.bool, device=model_inference.device)
+        for i, epi_idx in enumerate(self.epi_pts_indices):
+            neighbors = neighbors_dict[int(epi_idx)]
+            k = neighbors.numel()
+            if k > 0:
+                neighbors_padded[i, :k] = neighbors
+                neighbors_mask[i, :k] = True
+        
+        if not invprob_flag:  # Optimization problem
+            ploc1_mask = torch.where(self.epi_pts_indices == self.ploc1_indice)[0]
+            ploc1_indices = neighbors_padded[ploc1_mask][neighbors_mask[ploc1_mask]]
+            self.sample['a'][ploc1_indices, ..., 0] = 1.
+            self.sample['a'][:, ..., 1] = self.d_iso
+
+        sample_list = [self.sample.clone() for _ in range(batch_size)]
+        batched_sample = Batch.from_data_list(sample_list)
+        return batched_sample, neighbors_padded, neighbors_mask
+
+    def _inverse_problem(self, model_inference):
+        self.sample = self.sample.to(model_inference.device)
+        y_true = self.sample['y']
+        epi_vals = y_true[self.epi_pts_indices]
         min_pos = int(epi_vals.argmin().item())
         t0 = min_pos / float(len(self.epi_pts_indices) - 1)
         x0 = np.array([0.2, t0], dtype=float)
         self.act_max_base = y_true.max().item()
-        def _inverse_problem_diso_wrapper(x):
-            d_iso = x[0]
-            idx = min(
-                int(round(x[1] * len(self.epi_pts_indices))),
-                len(self.epi_pts_indices) - 1)
-            ploc1_indice = self.epi_pts_indices[idx]
-            ploc_xyz = self.sample['input_geom'][ploc1_indice].unsqueeze(0)
-            output = model_inference.predict(
-                self.sample, Diso=d_iso, plocs=ploc_xyz)
-            loss = l2loss(output, y_true)
-            return loss.item()
+        pop_size = 15
+        batch_size = pop_size * 2
+        batched_sample, neighbors_padded, neighbors_mask = self._prepare_vectorized_optimization(model_inference, batch_size, invprob_flag=True)
+        
+        def _inverse_problem_wrapper_func(x_population): 
+            batch_size = x_population.shape[1]
+            if batch_size == 1:
+                wrapper_sample = self.sample
+                offsets = torch.tensor([0], device=model_inference.device)
+            else:
+                wrapper_sample = batched_sample
+                offsets = batched_sample.ptr[:-1].unsqueeze(1)
+            wrapper_sample['a'][:, 0] = 0.
+            normalized_positions = x_population[1, :] * len(self.epi_pts_indices)
+            ploc_indices_in_epi_pts = np.clip(
+                np.round(normalized_positions).astype(int),
+                0,
+                len(self.epi_pts_indices) - 1
+                )
+            neighbors_global = neighbors_padded[ploc_indices_in_epi_pts] + offsets
+            neighbors_global = neighbors_global[neighbors_mask[ploc_indices_in_epi_pts]]
+            wrapper_sample['a'][neighbors_global, 0] = 1.
+            wrapper_sample['a'][:, 1] = torch.repeat_interleave(
+                torch.tensor(x_population[0, :],
+                device=model_inference.device,
+                dtype=self.sample['input_geom'].dtype),
+                self.sample['input_geom'].shape[0])
+            with torch.no_grad():
+                output_batch = model_inference.model(
+                    **model_inference.data_processor.preprocess(wrapper_sample))
+                output_batch, _ = model_inference.data_processor.postprocess(
+                    output_batch, wrapper_sample)
+                loss = l2loss(output_batch, **wrapper_sample)
+            return loss.detach().cpu().numpy()
         
         start_time = time.time()
         result = differential_evolution(
-            _inverse_problem_diso_wrapper,
+            _inverse_problem_wrapper_func,
             bounds=[(0.1, 2.), (0, 1)],
-            # popsize=50,
+            popsize=pop_size,
             seed=45,
             strategy='best1bin',
+            updating='deferred',
             # maxiter=100,
             x0=x0,
-            )
+            vectorized=True,
+            polish=True
+        )
         end_time = time.time()
         print(f"Time taken for the inverse problem: {end_time - start_time} (s)")
         self.d_iso = result.x[0]
         self.ploc1_indice = self.epi_pts_indices[
             min(int(round(result.x[1] * len(self.epi_pts_indices))),
-                len(self.epi_pts_indices) - 1)]
+            len(self.epi_pts_indices) - 1)]
         print(f"result 1st problem: {result.fun, result.x}")
-        self.ploc1_xyz = self.sample['input_geom'][self.ploc1_indice].unsqueeze(0)
+        self.ploc1_xyz = self.sample['input_geom'][self.ploc1_indice].unsqueeze(0).detach().cpu()
         return None
 
     def _optimization_problem(self, model_inference):
-        def _optimization_problem_ploc2_wrapper(x):
-            idx = min(
-                int(round(x[0] * len(self.epi_pts_indices))),
-                len(self.epi_pts_indices) - 1)
-            ploc2_indice = self.epi_pts_indices[idx]
-            ploc2_xyz = self.sample['input_geom'][ploc2_indice].unsqueeze(0)
-            plocs_xyz = torch.concat((
-                self.ploc1_xyz,
-                ploc2_xyz), dim=0)
-
-            output = model_inference.predict(
-                self.sample, Diso=self.d_iso, plocs=plocs_xyz)
-
-            return output.max().item()
+        pop_size = 15
+        batch_size = pop_size * 1
+        self.sample = self.sample.to(model_inference.device)
+        batched_sample, neighbors_padded, neighbors_mask = self._prepare_vectorized_optimization(model_inference, batch_size, invprob_flag=False)
+        def _optimization_problem_ploc2_wrapper(x_population):
+            batch_size = x_population.shape[1]
+            if batch_size == 1:
+                wrapper_sample = self.sample.clone()
+                offsets = torch.tensor([0], device=model_inference.device)
+            else:
+                wrapper_sample = batched_sample.clone()
+                offsets = batched_sample.ptr[:-1].unsqueeze(1)
+            normalized_positions = x_population[0, :] * len(self.epi_pts_indices)
+            ploc_indices_in_epi_pts = np.clip(
+                np.round(normalized_positions).astype(int),
+                0,
+                len(self.epi_pts_indices) - 1
+                )
+            neighbors_global = neighbors_padded[ploc_indices_in_epi_pts] + offsets
+            neighbors_global = neighbors_global[neighbors_mask[ploc_indices_in_epi_pts]]
+            wrapper_sample['a'][neighbors_global, 0] = 1.
+            with torch.no_grad():
+                output_batch = model_inference.model(
+                    **model_inference.data_processor.preprocess(wrapper_sample))
+                output_batch, _ = model_inference.data_processor.postprocess(
+                    output_batch, wrapper_sample)
+                if batch_size == 1:
+                    output = output_batch.max()
+                else:
+                    output, _ = scatter_max(output_batch.flatten(), wrapper_sample['batch'])
+            return output.detach().cpu().numpy()
         
         start_time = time.time()
         result = differential_evolution(
             _optimization_problem_ploc2_wrapper,
             bounds=[(0, 1)],
-            # popsize=50,
+            popsize=pop_size,
             seed=45,
             strategy='best1bin',
+            vectorized=True,
+            polish=True,
+            updating='deferred',
             # maxiter=100
             )
         end_time = time.time()
@@ -90,7 +175,7 @@ class CRTWorkflow:
         self.ploc2_indice = self.epi_pts_indices[
             min(int(round(result.x[0] * len(self.epi_pts_indices))),
                 len(self.epi_pts_indices) - 1)]
-        self.ploc2_xyz = self.sample['input_geom'][self.ploc2_indice].unsqueeze(0)
+        self.ploc2_xyz = self.sample['input_geom'][self.ploc2_indice].unsqueeze(0).detach().cpu()
         print(f"result 2nd problem: {result.fun, result.x}")
         self.act_max_crt = result.fun
         return None
@@ -205,17 +290,13 @@ if __name__ == "__main__":
         dataprocessor_path=DATAPROCESSOR_PATH,
         single_case_handling=single_case_handling)
 
-    UPLOAD_DIR = Path("uploads")
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR = Path('/mnt/home/naghavis/Documents/Research/DeepCardioSim/backend/uploads')
 
-    CNVRS_DIR = Path("conversions")
-    CNVRS_DIR.mkdir(parents=True, exist_ok=True)
+    CNVRS_DIR = Path('/mnt/home/naghavis/Documents/Research/DeepCardioSim/backend/conversions')
 
-    PRED_DIR = Path("predicted")
-    PRED_DIR.mkdir(parents=True, exist_ok=True)
+    PRED_DIR = Path('/mnt/home/naghavis/Documents/Research/DeepCardioSim/backend/predicted')
 
-    CRT_RUNTIME_DIR = Path("crt_runtime")
-    CRT_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    CRT_RUNTIME_DIR = Path('/mnt/home/naghavis/Documents/Research/DeepCardioSim/backend/crt_runtime')
 
     token = 'sample_crt'
     input_path = UPLOAD_DIR / f"{token}.vtk"
@@ -229,7 +310,7 @@ if __name__ == "__main__":
             "singularity", "exec",
             FENICS_CONTAINER,
             "python3",
-            "src/generate_EF.py",
+            "/mnt/home/naghavis/Documents/Research/DeepCardioSim/backend/src/generate_EF.py",
             "--token", token
         ]
         
@@ -244,7 +325,7 @@ if __name__ == "__main__":
 
     run_generate_EF(token)
 
-    file_path = str('./uploads/sample_crt.vtk')
+    file_path = str(UPLOAD_DIR / 'sample_crt.vtk')
     sample = model_inference.file_to_inp_data(file=file_path)
     crt_workflow = CRTWorkflow(sample)
     start_time = time.time()
